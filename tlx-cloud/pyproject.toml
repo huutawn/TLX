@@ -1,0 +1,37 @@
+[project]
+name = "tlx-cloud"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.4",
+    "asyncpg>=0.31.0",
+    "bcrypt>=5.0.0",
+    "boto3>=1.43.14",
+    "fastapi>=0.136.3",
+    "httpx>=0.28.1",
+    "minio>=7.2.20",
+    "passlib>=1.7.4",
+    "pydantic-settings>=2.14.1",
+    "pyjwt>=2.13.0",
+    "python-multipart>=0.0.29",
+    "redis>=7.4.0",
+    "sqlalchemy>=2.0.50",
+    "stripe>=15.1.0",
+    "uvicorn>=0.48.0",
+    "websocket>=0.2.1",
+    "websockets>=16.0",
+]
+
+[tool.uv.workspace]
+members = [
+    "tlx-cloud",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.14",
+]
