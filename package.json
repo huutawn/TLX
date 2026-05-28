@@ -1,0 +1,15 @@
+{
+  "name": "tlx",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bun --filter \"*\" dev",
+    "build": "bun --filter \"*\" build"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
