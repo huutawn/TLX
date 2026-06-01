@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "bun --watch src/index.ts ui:start",
     "start": "bun src/index.ts",
-    "build": "bun build src/index.ts --target bun --outfile dist/index.js",
+    "build": "bun build src/index.ts --target bun --packages external --outfile dist/index.js",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
@@ -18,7 +19,9 @@
     "commander": "^14.0.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "playwright": "^1.60.0"
+    "playwright": "^1.60.0",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.26.9"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
