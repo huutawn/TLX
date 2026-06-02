@@ -63,24 +63,26 @@ export class NextStrategy implements FrameworkStrategy {
 
   private isNextPageFile(rootDir: string, filePath: string): boolean {
     const relativePath = path.relative(rootDir, filePath).replace(/\\/g, '/');
+    const routeRootPath = this.stripSrcPrefix(relativePath);
 
-    if (relativePath.startsWith('app/')) {
-      return /\/page\.(?:ts|tsx|js|jsx)$/.test(relativePath);
+    if (routeRootPath.startsWith('app/')) {
+      return /\/page\.(?:ts|tsx|js|jsx)$/.test(routeRootPath);
     }
 
-    if (!relativePath.startsWith('pages/') || relativePath.startsWith('pages/api/')) {
+    if (!routeRootPath.startsWith('pages/') || routeRootPath.startsWith('pages/api/')) {
       return false;
     }
 
-    const basename = path.basename(relativePath);
+    const basename = path.basename(routeRootPath);
     return !basename.startsWith('_') && !basename.startsWith('.') && PAGE_EXTENSIONS.includes(path.extname(filePath));
   }
 
   private routeFromFile(rootDir: string, filePath: string): string {
     const relativePath = path.relative(rootDir, filePath).replace(/\\/g, '/');
+    const routeRootPath = this.stripSrcPrefix(relativePath);
 
-    if (relativePath.startsWith('app/')) {
-      const segments = relativePath
+    if (routeRootPath.startsWith('app/')) {
+      const segments = routeRootPath
         .replace(/^app\//, '')
         .replace(/\.(?:ts|tsx|js|jsx)$/, '')
         .split('/')
@@ -88,12 +90,16 @@ export class NextStrategy implements FrameworkStrategy {
       return normalizeRoute(this.normalizeNextSegments(segments.join('/')));
     }
 
-    const withoutPrefix = relativePath
+    const withoutPrefix = routeRootPath
       .replace(/^pages\//, '')
       .replace(/\.(?:ts|tsx|js|jsx)$/, '')
       .replace(/\/index$/, '');
 
     return normalizeRoute(this.normalizeNextSegments(withoutPrefix === 'index' ? '' : withoutPrefix));
+  }
+
+  private stripSrcPrefix(relativePath: string): string {
+    return relativePath.replace(/^src\//, '');
   }
 
   private normalizeNextSegments(routePath: string): string {
