@@ -5,7 +5,8 @@
   },
   "files": [],
   "references": [
-    { "path": "./apps/cli" },
+    { "path": "./packages/contracts" },
+    { "path": "./apps/worker-node" },
     { "path": "./apps/ui" }
   ]
 }

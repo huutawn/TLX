@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tlx.local/schemas/scan-result.schema.json",
+  "title": "TlxScanResultResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["success", "totalElementsScanned", "bugsFound", "timestamp", "report"],
+  "properties": {
+    "success": { "type": "boolean" },
+    "totalElementsScanned": { "type": "integer", "minimum": 0 },
+    "bugsFound": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "report": { "$ref": "#/$defs/report" }
+  },
+  "$defs": {
+    "boundingBox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "minimum": 0 },
+        "height": { "type": "number", "minimum": 0 }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "severity", "message", "route", "url", "selector", "boundingBox", "metadata"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["overlap", "overflow", "contrast", "crawler", "api"] },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "message": { "type": "string" },
+        "route": { "type": "string" },
+        "url": { "type": "string" },
+        "selector": { "type": "string" },
+        "boundingBox": { "$ref": "#/$defs/boundingBox" },
+        "screenshotPath": { "type": "string" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "startedAt", "finishedAt", "success", "summary", "issues", "screenshots", "warnings"],
+      "properties": {
+        "id": { "type": "string" },
+        "scope": { "enum": ["changed", "all", "route"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "finishedAt": { "type": "string", "format": "date-time" },
+        "success": { "type": "boolean" },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["routesScanned", "elementsScanned", "issuesFound", "screenshotsCaptured"],
+          "properties": {
+            "routesScanned": { "type": "integer", "minimum": 0 },
+            "elementsScanned": { "type": "integer", "minimum": 0 },
+            "issuesFound": { "type": "integer", "minimum": 0 },
+            "screenshotsCaptured": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+        "screenshots": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

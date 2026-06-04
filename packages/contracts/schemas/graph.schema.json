@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tlx.local/schemas/graph.schema.json",
+  "title": "TlxGraphResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pages", "components", "apis", "edges"],
+  "properties": {
+    "pages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/pageNode" }
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/componentNode" }
+    },
+    "apis": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/graphEdge" }
+    }
+  },
+  "$defs": {
+    "componentNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "name", "filePath"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "const": "component" },
+        "name": { "type": "string" },
+        "filePath": { "type": "string" },
+        "importedFrom": { "type": "string" }
+      }
+    },
+    "pageNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "name", "route", "filePath", "framework", "components", "apis"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "const": "page" },
+        "name": { "type": "string" },
+        "route": { "type": "string" },
+        "filePath": { "type": "string" },
+        "framework": { "type": "string" },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/componentNode" }
+        },
+        "apis": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "graphEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "source", "target"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["page_uses_component", "page_calls_api"] },
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "label": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tlx.local/schemas/scan-action.schema.json",
+  "title": "TlxScanActionRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "scope": { "enum": ["changed", "all", "route"] },
+    "route": { "type": "string" }
+  }
+}

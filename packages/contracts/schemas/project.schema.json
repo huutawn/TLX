@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tlx.local/schemas/project.schema.json",
+  "title": "TlxProjectResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["framework", "port", "rootDir", "projectUrl", "dashboardPort"],
+  "properties": {
+    "framework": { "type": "string" },
+    "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "rootDir": { "type": "string" },
+    "projectUrl": { "type": "string" },
+    "dashboardPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+  }
+}

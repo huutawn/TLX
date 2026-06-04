@@ -1,0 +1,30 @@
+{
+  "name": "@tlx/worker-node",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "bun --watch src/index.ts ui:start",
+    "start": "bun src/index.ts",
+    "build": "bun build src/index.ts src/worker.ts --target bun --packages external --outdir dist",
+    "test": "bun test tests/detector-strategies.test.ts tests/storage-diff.test.ts tests/ui-analyzer.test.ts tests/api-controller.test.ts",
+    "test:uiux": "bun test tests/uiux-scanner.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tlx/contracts": "workspace:*",
+    "commander": "^14.0.2",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "playwright": "^1.60.0",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.26.9"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1"
+  }
+}

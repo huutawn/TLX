@@ -1,64 +1,184 @@
-# TLX
+# TLX Engine
 
-TLX la monorepo dung Bun cho hai ung dung chinh:
+Local-first testing and operations tooling for web projects.
 
-- `apps/cli`: CLI viet bang TypeScript, dung Commander de khai bao lenh va Express de serve dashboard.
-- `apps/ui`: Dashboard Next.js viet bang TypeScript, build static export vao `apps/ui/out`.
+TLX runs a Go host CLI and a Node/Bun worker behind it. The Go process owns the public command and lifecycle. The worker owns the Node ecosystem tasks: Express API, Playwright scanning, AST parsing, framework detection, and dashboard serving.
 
-## Yeu cau
+## What TLX Does
 
-- Bun `1.3.14` hoac moi hon.
+- Detects common web frameworks such as Next.js, Vue/Vite, Laravel, and generic PHP.
+- Builds a local project graph of pages, components, API calls, and edges.
+- Runs local UI/UX checks with Playwright.
+- Detects layout overlap, horizontal overflow, and WCAG contrast issues.
+- Stores reports locally in the target project, not in the cloud.
+- Shows a local dashboard with project map, cache diff, scan controls, reports, and visual issue highlights.
 
-## Cai dat
+## Architecture
 
-```bash
-bun install
+```text
+tlx Go host
+  -> Node/Bun worker
+       -> Express local API
+       -> Playwright UI/UX scanner
+       -> parser and framework detector
+       -> static dashboard serving
 ```
 
-## Lenh phat trien
+The user-facing command target is `tlx`. Bun remains an internal worker runtime because Playwright, AST parsing, Express, and framework strategies live in Node for the current phases.
 
-```bash
-bun run dev:ui      # chay Next.js dev server
-bun run dev:cli     # chay CLI o watch mode voi lenh ui:start
-bun run typecheck   # kiem tra TypeScript tat ca workspace
-bun run lint        # lint tat ca workspace
-bun run build       # build CLI va UI
-```
-
-## Chay dashboard qua CLI
-
-```bash
-bun run build:ui
-bun --filter @tlx/cli start ui:start
-```
-
-Mac/Linux co the chay binary sau khi build CLI:
-
-```bash
-bun run build:cli
-./apps/cli/dist/index.js ui:start --port 8080
-```
-
-## Quy uoc workspace
-
-- Root chi giu config chung, script dieu phoi va dev dependencies dung chung.
-- Runtime dependencies nam trong tung app, vi du `express` va `commander` nam o `apps/cli`.
-- TypeScript config chung nam o `tsconfig.base.json`; moi app extend file nay va co script `typecheck` rieng.
-- Khong commit `node_modules`, `.next`, `out`, `dist`, cache hoac file `.env`.
-
-## Cau truc
+## Repository Layout
 
 ```text
 apps/
-  cli/
-    src/index.ts
-    package.json
-    tsconfig.json
-  ui/
-    app/
-    package.json
-    tsconfig.json
-package.json
-tsconfig.base.json
-tsconfig.json
+  worker-node/       Node/Bun worker, local API, scanner, detector, tests
+  ui/                Next.js dashboard, static export target
+cmd/tlx/             Go CLI entrypoint
+internal/            Go host packages
+packages/contracts/  Shared TypeScript contracts and JSON schemas
 ```
+
+## Requirements
+
+- Go `1.23` or newer
+- Bun `1.3.14` or newer
+- Playwright Chromium for UI/UX scanning
+
+## Install
+
+```bash
+bun install
+bunx playwright install chromium
+```
+
+## Build
+
+```bash
+bun run build
+```
+
+This builds shared contracts, the worker, the dashboard, and the Go host binary at `dist/tlx`.
+
+## Development
+
+```bash
+bun run dev:ui      # Run the dashboard dev server
+bun run dev:worker  # Run the Node/Bun worker in watch mode
+bun run dev:host    # Run the Go host; it spawns the Bun worker
+bun run typecheck   # Typecheck all TypeScript workspaces
+bun run lint        # Run lint/typecheck commands for app workspaces
+```
+
+`bun run dev:host` is only a development shortcut for `go run ./cmd/tlx`. It still exercises the Go host path.
+
+## Run TLX Against a Project
+
+From the TLX repository:
+
+```bash
+bun run build:ui
+TLX_PROJECT=/path/to/target-project bun run dev:host
+```
+
+Open the dashboard:
+
+```text
+http://localhost:6532
+```
+
+If the target app is already running, pass its URL:
+
+```bash
+TLX_PROJECT=/path/to/target-project \
+TLX_TARGET_URL=http://localhost:3000 \
+bun run dev:host
+```
+
+After a full build, run the Go binary directly:
+
+```bash
+TLX_PROJECT=/path/to/target-project ./dist/tlx
+```
+
+## Local Storage
+
+TLX writes generated local testing state into the target project:
+
+```text
+.tlx/
+  hash.json
+  latest-report.json
+  screenshots/
+```
+
+The root `tlx.yaml` in the target project is the user-editable config file. `.tlx/tlx.yaml` is treated only as a legacy compatibility override.
+
+Example `tlx.yaml`:
+
+```yaml
+scan.defaultScope: changed
+scan.contrastRatio: 4.5
+scan.crawler.enabled: true
+scan.crawler.maxDepth: 2
+scan.crawler.maxPages: 25
+scan.api.enabled: true
+scan.api.unsafeMethods: false
+scan.ignoredPaths: .cache,tmp,coverage
+```
+
+## Local API
+
+The worker binds to `localhost` and exposes:
+
+```text
+GET  /api/status
+GET  /api/project
+GET  /api/graph
+GET  /api/cache/diff
+GET  /api/report/latest
+POST /api/actions/scan
+```
+
+Scan changed routes:
+
+```json
+{ "scope": "changed" }
+```
+
+Scan one route:
+
+```json
+{ "scope": "route", "route": "/admin" }
+```
+
+Scan all pages:
+
+```json
+{ "scope": "all" }
+```
+
+## Verification
+
+```bash
+go test ./...
+bun --filter @tlx/contracts typecheck
+bun --filter @tlx/contracts test
+bun --filter @tlx/worker-node typecheck
+bun --filter @tlx/worker-node test
+bun --filter @tlx/worker-node test:uiux
+bun --filter @tlx/ui typecheck
+bun --filter @tlx/ui build
+bun run build:host
+```
+
+## Roadmap
+
+- Phase 1: Go host CLI and Node/Bun worker lifecycle.
+- Phase 2: Local testing suite, local reports, UI/UX scanner, and dashboard.
+- Phase 3: DevOps suite, global SQLite storage, production agent, log sync, metrics, and health checks.
+- Phase 4: Optional SaaS/cloud workflow for teams.
+
+## Notes
+
+- TLX is local-first by default.
+- Reports and screenshots stay on the local machine unless a future opt-in sync feature is added.
+- Do not commit `node_modules`, `.next`, `out`, `dist`, `.tlx`, cache folders, or `.env` files.
