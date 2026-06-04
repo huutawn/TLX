@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tlx.local/schemas/status.schema.json",
+  "title": "TlxStatusResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "engine", "platform", "uptime", "dashboardPort", "projectUrl", "framework", "rootDir", "startedAt"],
+  "properties": {
+    "status": { "type": "string" },
+    "engine": { "type": "string" },
+    "platform": { "type": "string" },
+    "uptime": { "type": "number" },
+    "dashboardPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "projectUrl": { "type": "string" },
+    "framework": { "type": "string" },
+    "rootDir": { "type": "string" },
+    "startedAt": { "type": "string", "format": "date-time" }
+  }
+}

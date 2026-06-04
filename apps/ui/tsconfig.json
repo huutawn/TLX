@@ -18,7 +18,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@tlx/contracts": ["../../packages/contracts/src/index.ts"]
     }
   },
   "include": [
