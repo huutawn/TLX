@@ -98,6 +98,7 @@ function createGraph(rootDir: string): ScanGraph {
         filePath: path.join(rootDir, 'app/page.tsx'),
         framework: 'next',
         apis: [],
+        links: [],
         components: [
           {
             id: 'component-card',

@@ -74,7 +74,7 @@ export class EngineService {
       scope: requestedScope,
       startedAt,
       finishedAt,
-      success: scan.issues.every((issue) => issue.severity !== 'error'),
+      success: scan.artifactErrors.length === 0 && scan.issues.every((issue) => issue.severity !== 'error'),
       summary: {
         routesScanned: scan.routesScanned,
         elementsScanned: scan.elementsScanned,

@@ -76,10 +76,11 @@ export function MapView() {
 
         <Panel title="Edges">
           <KeyValue label="page_uses_component" value={graph.edges.filter((edge) => edge.type === "page_uses_component").length || graph.pages.reduce((sum, page) => sum + page.components.length, 0)} />
+          <KeyValue label="component_uses_component" value={graph.edges.filter((edge) => edge.type === "component_uses_component").length} />
           <KeyValue label="page_calls_api" value={graph.edges.filter((edge) => edge.type === "page_calls_api").length || graph.pages.reduce((sum, page) => sum + page.apis.length, 0)} />
+          <KeyValue label="page_links_page" value={graph.edges.filter((edge) => edge.type === "page_links_page").length} />
         </Panel>
       </aside>
     </div>
   );
 }
-

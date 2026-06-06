@@ -39,6 +39,20 @@ describe('UI analyzer', () => {
     expect(result.issues.every((issue) => issue.message.includes('Fix:'))).toBe(true);
   });
 
+  test('records full-page screenshot dimensions for overlay scaling', () => {
+    const result = analyzeElements([
+      element('p_1', 0, 900, 100, 20, 'Low contrast', 'rgb(120, 120, 120)', 'rgb(130, 130, 130)'),
+    ], {
+      ...baseOptions(),
+      viewport: { width: 1000, height: 700 },
+      pageMetrics: { scrollWidth: 1000, clientWidth: 1000, scrollHeight: 1600, clientHeight: 700 },
+    });
+
+    const issue = result.issues.find((item) => item.kind === 'contrast');
+    expect(issue?.metadata.screenshotWidth).toBe(1000);
+    expect(issue?.metadata.screenshotHeight).toBe(1600);
+  });
+
   test('does not report overlap without hit-test evidence', () => {
     const result = analyzeElements([
       element('button_0', 0, 0, 100, 50, 'Click', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'),

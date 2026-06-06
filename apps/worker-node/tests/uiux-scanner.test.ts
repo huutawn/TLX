@@ -43,6 +43,39 @@ describe('UI/UX scanner Playwright fixtures', () => {
     expect(result.issues.some((issue) => issue.kind === 'contrast')).toBe(true);
   });
 
+  test('does not report contrast from text on gradient background', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-gradient-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(`
+          <style>
+            body { margin: 0; background: white; font-family: sans-serif; }
+            main { min-height: 900px; background: linear-gradient(135deg, #064e3b, #047857); padding: 80px; }
+            h1 { color: white; font-size: 48px; max-width: 620px; }
+          </style>
+          <main><h1>Every pledge is tracked</h1></main>
+        `, { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'gradient',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      expect(result.issues.filter((issue) => issue.kind === 'contrast')).toEqual([]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test('clean page passes and issue screenshot can be captured', async () => {
     const clean = await scanFixture(`
       <style>body { margin: 0; background: white; color: black; } main { min-height: 1600px; padding: 20px; }</style>
@@ -112,6 +145,72 @@ describe('UI/UX scanner Playwright fixtures', () => {
       server.stop(true);
     }
   });
+
+  test('runner attaches a real screenshot to visual issues', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-screenshots-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(`
+          <style>body { margin: 0; background: white; } #wide { width: 1400px; height: 40px; color: black; background: white; }</style>
+          <div id="wide" class="__tlx-target">Wide</div>
+        `, { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'screenshots',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      const visualIssues = result.issues.filter((issue) => issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast');
+      expect(visualIssues.length).toBeGreaterThan(0);
+      expect(result.artifactErrors).toEqual([]);
+      expect(result.screenshots.length).toBe(1);
+      for (const issue of visualIssues) {
+        expect(issue.screenshotPath).toBeDefined();
+        const stat = await fs.stat(path.join(root, issue.screenshotPath ?? ''));
+        expect(stat.size).toBeGreaterThan(0);
+      }
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('synthetic crawler issues do not require visual screenshots', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-crawler-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response('<main><h1>Home</h1><p>Readable text</p><script>console.error("boom")</script></main>', { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'crawler',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      const crawlerIssue = result.issues.find((issue) => issue.kind === 'crawler');
+      expect(crawlerIssue).toBeDefined();
+      expect(crawlerIssue?.screenshotPath).toBeUndefined();
+      expect(result.artifactErrors).toEqual([]);
+    } finally {
+      server.stop(true);
+    }
+  });
 });
 
 async function scanFixture(html: string, captureScreenshot = false) {
@@ -159,7 +258,7 @@ async function scanFixture(html: string, captureScreenshot = false) {
       viewport: { width: 1000, height: 700 },
       contrastRatio: 4.5,
       issuePrefix: 'fixture',
-      pageMetrics: await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })),
+      pageMetrics: await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth, scrollHeight: document.documentElement.scrollHeight, clientHeight: document.documentElement.clientHeight })),
     });
     result.issues = result.issues.map((issue) => ({ ...issue, metadata: { ...issue.metadata, viewport: 'desktop' } }));
 

@@ -27,6 +27,7 @@ export interface PlaywrightScanResult {
   elementsScanned: number;
   routesScanned: number;
   warnings: string[];
+  artifactErrors: string[];
 }
 
 export class PlaywrightScannerRunner {
@@ -43,6 +44,7 @@ export class PlaywrightScannerRunner {
     const issues: TlxScanIssue[] = [];
     const screenshots = new Set<string>();
     const warnings: string[] = [];
+    const artifactErrors: string[] = [];
     const scannedRoutes = new Set<string>();
     let elementsScanned = 0;
 
@@ -88,7 +90,13 @@ export class PlaywrightScannerRunner {
             pageMetrics: pageScan.pageMetrics,
           });
           elementsScanned += result.elementsScanned;
-          issues.push(...result.issues.map((issue) => ({ ...issue, metadata: { ...issue.metadata, viewport: viewport.name } })));
+          const analyzedIssues = result.issues.map((issue) => ({ ...issue, metadata: { ...issue.metadata, viewport: viewport.name } }));
+          issues.push(...analyzedIssues);
+
+          const visualIssues = analyzedIssues.filter(isVisualIssue);
+          if (visualIssues.length > 0) {
+            await captureVisualScreenshot(page, target, viewport.name, visualIssues, options, screenshots, warnings, artifactErrors);
+          }
 
           if (options.config.scan.crawler.enabled) {
             issues.push(...(await crawlSafe(page, target, options.config.scan.crawler.maxDepth, options.config.scan.crawler.maxPages)));
@@ -102,18 +110,6 @@ export class PlaywrightScannerRunner {
           if (options.config.scan.api.enabled) {
             issues.push(...(await checkApiContracts(page, target, options.apiEndpoints, options.config.scan.api.unsafeMethods)));
           }
-
-          const routeIssues = issues.filter((issue) => issue.route === target.route && !issue.screenshotPath);
-          if (routeIssues.length > 0) {
-            const fileName = `${slugRoute(target.route)}-${viewport.name}.png`;
-            const absolutePath = path.join(options.screenshotsDir, fileName);
-            const relativePath = options.relativeScreenshotPath(options.reportId, fileName);
-            await page.screenshot({ path: absolutePath, fullPage: true });
-            screenshots.add(relativePath);
-            for (const issue of routeIssues) {
-              issue.screenshotPath = relativePath;
-            }
-          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -123,8 +119,34 @@ export class PlaywrightScannerRunner {
       }
     }
 
-    return { issues, screenshots: [...screenshots], elementsScanned, routesScanned: scannedRoutes.size, warnings };
+    return { issues, screenshots: [...screenshots], elementsScanned, routesScanned: scannedRoutes.size, warnings, artifactErrors };
   }
+}
+
+async function captureVisualScreenshot(page: Page, target: RouteScanTarget, viewportName: string, visualIssues: TlxScanIssue[], options: PlaywrightScanOptions, screenshots: Set<string>, warnings: string[], artifactErrors: string[]) {
+  const fileName = `${slugRoute(target.route)}-${viewportName}.png`;
+  const absolutePath = path.join(options.screenshotsDir, fileName);
+  const relativePath = options.relativeScreenshotPath(options.reportId, fileName);
+
+  try {
+    await page.screenshot({ path: absolutePath, fullPage: true });
+    const stat = await fs.stat(absolutePath);
+    if (stat.size <= 0) throw new Error('empty screenshot file');
+
+    screenshots.add(relativePath);
+    for (const issue of visualIssues) {
+      issue.screenshotPath = relativePath;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const warning = `[${viewportName} ${target.route}] screenshot capture failed: ${message}`;
+    warnings.push(warning);
+    artifactErrors.push(warning);
+  }
+}
+
+function isVisualIssue(issue: TlxScanIssue) {
+  return issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast';
 }
 
 function uniqueTargets(targets: RouteScanTarget[]): RouteScanTarget[] {
@@ -151,7 +173,7 @@ async function discoverInternalTargets(page: Page, target: RouteScanTarget, maxP
   return uniqueTargets(routes);
 }
 
-async function collectElements(page: Page): Promise<{ elements: ScannedElement[]; pageMetrics: { scrollWidth: number; clientWidth: number } }> {
+async function collectElements(page: Page): Promise<{ elements: ScannedElement[]; pageMetrics: { scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number } }> {
   return page.evaluate(() => {
     const selectors = 'button, a, h1, h2, h3, p, input, label, textarea, select, img, [data-tlx-target], .__tlx-target';
     const elements = Array.from(document.querySelectorAll<HTMLElement>(selectors))
@@ -194,6 +216,8 @@ async function collectElements(page: Page): Promise<{ elements: ScannedElement[]
       pageMetrics: {
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        clientHeight: document.documentElement.clientHeight,
       },
     };
 
@@ -286,8 +310,10 @@ async function collectElements(page: Page): Promise<{ elements: ScannedElement[]
     function findBackgroundColor(element: HTMLElement): string {
       let current: HTMLElement | null = element;
       while (current) {
-        const color = window.getComputedStyle(current).backgroundColor;
+        const style = window.getComputedStyle(current);
+        const color = style.backgroundColor;
         if (color && color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') return color;
+        if (style.backgroundImage && style.backgroundImage !== 'none') return 'unknown-background-image';
         current = current.parentElement;
       }
       return 'rgb(255, 255, 255)';

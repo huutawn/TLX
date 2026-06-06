@@ -20,7 +20,7 @@ export interface AnalyzeOptions {
   viewport: { width: number; height: number };
   contrastRatio: number;
   issuePrefix: string;
-  pageMetrics?: { scrollWidth: number; clientWidth: number };
+  pageMetrics?: { scrollWidth: number; clientWidth: number; scrollHeight?: number; clientHeight?: number };
 }
 
 export interface AnalyzeResult {
@@ -128,6 +128,8 @@ function createIssue(kind: TlxScanIssue['kind'], index: number, element: Scanned
       areaSelector: element.areaSelector,
       viewportWidth: options.viewport.width,
       viewportHeight: options.viewport.height,
+      screenshotWidth: options.viewport.width,
+      screenshotHeight: Math.max(options.viewport.height, options.pageMetrics?.scrollHeight ?? options.viewport.height),
       ...metadata,
     },
   };

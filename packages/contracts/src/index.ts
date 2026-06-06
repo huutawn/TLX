@@ -24,6 +24,8 @@ export interface TlxComponentNode {
   name: string;
   filePath: string;
   importedFrom?: string;
+  parentId?: string;
+  parentIds?: string[];
 }
 
 export interface TlxPageNode {
@@ -35,9 +37,10 @@ export interface TlxPageNode {
   framework: string;
   components: TlxComponentNode[];
   apis: string[];
+  links: string[];
 }
 
-export type TlxGraphEdgeType = 'page_uses_component' | 'page_calls_api';
+export type TlxGraphEdgeType = 'page_uses_component' | 'component_uses_component' | 'page_calls_api' | 'page_links_page';
 
 export interface TlxGraphEdge {
   id: string;

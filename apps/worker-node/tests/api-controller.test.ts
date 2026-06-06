@@ -89,6 +89,7 @@ function createGraph(rootDir: string): ScanGraph {
         framework: 'next',
         components: [],
         apis: [],
+        links: [],
       },
     ],
     components: [],
