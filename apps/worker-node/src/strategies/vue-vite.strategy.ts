@@ -53,6 +53,7 @@ export class VueViteStrategy implements FrameworkStrategy {
         framework: this.name,
         components,
         apis,
+        links: [],
       });
     }
 

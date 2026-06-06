@@ -38,13 +38,16 @@ export class DetectorService {
     }
 
     const astParser = new AstParserService();
-    const pages = await strategy.extractPages(rootDir, astParser);
+    const [pages, apiEndpoints] = await Promise.all([
+      strategy.extractPages(rootDir, astParser),
+      strategy.extractApiEndpoints?.(rootDir, astParser) ?? Promise.resolve([]),
+    ]);
 
     return {
       framework: strategy.name,
       port: DEFAULT_PORTS[strategy.name] ?? DEFAULT_PORTS.unknown ?? 0,
       rootDir,
-      scanGraph: this.createScanGraph(pages),
+      scanGraph: this.createScanGraph(pages, apiEndpoints),
     };
   }
 
@@ -99,21 +102,27 @@ export class DetectorService {
     return [...markerSet].sort();
   }
 
-  private createScanGraph(pages: PageNode[]): ScanGraph {
+  private createScanGraph(pages: PageNode[], apiEndpoints: string[] = []): ScanGraph {
     const components = new Map<string, ComponentNode>();
-    const apis = new Set<string>();
+    const apis = new Set(apiEndpoints);
     const edges = new Map<string, GraphEdge>();
+    const pageByRoute = new Map(pages.map((page) => [page.route, page]));
 
     for (const page of pages) {
       for (const component of page.components) {
         components.set(component.id, component);
-        const edge: GraphEdge = {
-          id: createGraphId('edge', `${page.id}:component:${component.id}`),
-          type: 'page_uses_component',
-          source: page.id,
-          target: component.id,
-        };
-        edges.set(edge.id, edge);
+        const parentIds = component.parentIds ?? (component.parentId ? [component.parentId] : [page.id]);
+
+        for (const parentId of parentIds) {
+          const edgeType = parentId.startsWith('component:') ? 'component_uses_component' : 'page_uses_component';
+          const edge: GraphEdge = {
+            id: createGraphId('edge', `${parentId}:${edgeType}:${component.id}`),
+            type: edgeType,
+            source: parentId,
+            target: component.id,
+          };
+          edges.set(edge.id, edge);
+        }
       }
 
       for (const api of page.apis) {
@@ -125,6 +134,22 @@ export class DetectorService {
           source: page.id,
           target: apiId,
           label: api,
+        };
+        edges.set(edge.id, edge);
+      }
+
+      for (const linkedRoute of page.links) {
+        const linkedPage = pageByRoute.get(linkedRoute);
+        if (!linkedPage || linkedPage.id === page.id) {
+          continue;
+        }
+
+        const edge: GraphEdge = {
+          id: createGraphId('edge', `${page.id}:page:${linkedPage.id}`),
+          type: 'page_links_page',
+          source: page.id,
+          target: linkedPage.id,
+          label: linkedRoute,
         };
         edges.set(edge.id, edge);
       }

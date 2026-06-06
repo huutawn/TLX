@@ -7,6 +7,11 @@ export interface ScannedElement {
   boundingBox: TlxBoundingBox;
   color: string;
   backgroundColor: string;
+  areaLabel?: string;
+  areaSelector?: string;
+  ancestorSelectors?: string[];
+  interactiveAncestorSelector?: string;
+  occludes?: string[];
 }
 
 export interface AnalyzeOptions {
@@ -15,6 +20,7 @@ export interface AnalyzeOptions {
   viewport: { width: number; height: number };
   contrastRatio: number;
   issuePrefix: string;
+  pageMetrics?: { scrollWidth: number; clientWidth: number; scrollHeight?: number; clientHeight?: number };
 }
 
 export interface AnalyzeResult {
@@ -26,22 +32,35 @@ export function analyzeElements(elements: ScannedElement[], options: AnalyzeOpti
   const issues: TlxScanIssue[] = [];
   const sorted = [...elements].sort((left, right) => left.boundingBox.x - right.boundingBox.x);
 
+    if (options.pageMetrics && options.pageMetrics.scrollWidth > options.pageMetrics.clientWidth + 2) {
+      const overflowWidth = options.pageMetrics.scrollWidth - options.pageMetrics.clientWidth;
+    issues.push(createIssue('overflow', issues.length, createDocumentElement(), { x: 0, y: 0, width: options.pageMetrics.scrollWidth, height: options.viewport.height }, options, `Page creates ${Math.round(overflowWidth)}px of horizontal scrolling. Fix: remove fixed widths wider than the viewport, add max-width: 100%, or contain overflowing children.`, {
+      evidence: 'horizontal-scroll',
+      overflowX: overflowWidth,
+      fixHint: 'Inspect wide elements, replace fixed width with responsive max-width, and hide decorative overflow only when intentional.',
+    }));
+  }
+
   for (let index = 0; index < sorted.length; index += 1) {
     const current = sorted[index];
     if (!current) continue;
 
     if (isOverflowing(current.boundingBox, options.viewport)) {
-      issues.push(createIssue('overflow', issues.length, current, current.boundingBox, options, 'Element overflows the viewport', {
-        viewport: options.viewport,
+      const overflowX = overflowAmount(current.boundingBox, options.viewport);
+      issues.push(createIssue('overflow', issues.length, current, current.boundingBox, options, `${describeElement(current)} extends ${Math.round(overflowX)}px outside the viewport. Fix: constrain its width, remove negative margins, or make the layout responsive.`, {
+        evidence: 'element-outside-viewport',
+        overflowX,
+        fixHint: 'Check width/min-width, absolute positioning, transforms, and margins for this selector.',
       }));
     }
 
     const ratio = contrastRatio(current.color, current.backgroundColor);
     if (current.text && ratio > 0 && ratio < options.contrastRatio) {
-      issues.push(createIssue('contrast', issues.length, current, current.boundingBox, options, `Contrast ${ratio.toFixed(2)} is below ${options.contrastRatio}`, {
+      issues.push(createIssue('contrast', issues.length, current, current.boundingBox, options, `${describeElement(current)} has low text contrast (${ratio.toFixed(2)}:1, required ${options.contrastRatio}:1). Fix: darken text, lighten/darken background, or increase contrast token.`, {
         ratio,
         color: current.color,
         backgroundColor: current.backgroundColor,
+        fixHint: 'Use WCAG AA contrast: 4.5:1 for normal text or 3:1 for large text.',
       }));
     }
 
@@ -50,10 +69,15 @@ export function analyzeElements(elements: ScannedElement[], options: AnalyzeOpti
       if (!candidate) continue;
       if (candidate.boundingBox.x >= current.boundingBox.x + current.boundingBox.width) break;
 
-      if (isOverlapping(current.boundingBox, candidate.boundingBox) && !isLikelyParentChildContainment(current.boundingBox, candidate.boundingBox)) {
-        issues.push(createIssue('overlap', issues.length, current, unionBox(current.boundingBox, candidate.boundingBox), options, 'Elements overlap in the layout', {
+      const overlapBox = intersectionBox(current.boundingBox, candidate.boundingBox);
+      if (overlapBox && isReportableOverlap(current, candidate, overlapBox)) {
+        issues.push(createIssue('overlap', issues.length, current, overlapBox, options, `${describeElement(current)} visually overlaps ${describeElement(candidate)}. Fix: add spacing, remove conflicting absolute positioning, or adjust z-index only if layering is intended.`, {
+          evidence: 'geometry+hit-test',
           otherSelector: candidate.selector,
           otherTagName: candidate.tagName,
+          otherText: candidate.text,
+          overlapRatio: overlapRatio(current.boundingBox, candidate.boundingBox, overlapBox),
+          fixHint: 'Inspect both selectors in the named area and check position, z-index, flex/grid gaps, and responsive wrapping.',
         }));
       }
     }
@@ -67,7 +91,7 @@ export function isOverlapping(left: TlxBoundingBox, right: TlxBoundingBox): bool
 }
 
 export function isOverflowing(box: TlxBoundingBox, viewport: { width: number; height: number }) {
-  return box.x < 0 || box.y < 0 || box.x + box.width > viewport.width;
+  return box.x < -2 || box.x + box.width > viewport.width + 2;
 }
 
 export function isLikelyParentChildContainment(left: TlxBoundingBox, right: TlxBoundingBox) {
@@ -99,17 +123,61 @@ function createIssue(kind: TlxScanIssue['kind'], index: number, element: Scanned
     metadata: {
       tagName: element.tagName,
       text: element.text,
+      elementText: element.text,
+      areaLabel: element.areaLabel,
+      areaSelector: element.areaSelector,
+      viewportWidth: options.viewport.width,
+      viewportHeight: options.viewport.height,
+      screenshotWidth: options.viewport.width,
+      screenshotHeight: Math.max(options.viewport.height, options.pageMetrics?.scrollHeight ?? options.viewport.height),
       ...metadata,
     },
   };
 }
 
-function unionBox(left: TlxBoundingBox, right: TlxBoundingBox): TlxBoundingBox {
-  const x = Math.min(left.x, right.x);
-  const y = Math.min(left.y, right.y);
-  const maxX = Math.max(left.x + left.width, right.x + right.width);
-  const maxY = Math.max(left.y + left.height, right.y + right.height);
-  return { x, y, width: maxX - x, height: maxY - y };
+function createDocumentElement(): ScannedElement {
+  return {
+    selector: 'document',
+    tagName: 'DOCUMENT',
+    text: '',
+    boundingBox: { x: 0, y: 0, width: 0, height: 0 },
+    color: 'rgb(0, 0, 0)',
+    backgroundColor: 'rgb(255, 255, 255)',
+    areaLabel: 'Document',
+    areaSelector: 'document',
+  };
+}
+
+function intersectionBox(left: TlxBoundingBox, right: TlxBoundingBox): TlxBoundingBox | undefined {
+  const x = Math.max(left.x, right.x);
+  const y = Math.max(left.y, right.y);
+  const maxX = Math.min(left.x + left.width, right.x + right.width);
+  const maxY = Math.min(left.y + left.height, right.y + right.height);
+  const width = maxX - x;
+  const height = maxY - y;
+  return width > 0 && height > 0 ? { x, y, width, height } : undefined;
+}
+
+function isReportableOverlap(left: ScannedElement, right: ScannedElement, overlapBox: TlxBoundingBox): boolean {
+  if (overlapBox.width < 4 || overlapBox.height < 4) return false;
+  if (isLikelyParentChildContainment(left.boundingBox, right.boundingBox)) return false;
+  if (left.ancestorSelectors?.includes(right.selector) || right.ancestorSelectors?.includes(left.selector)) return false;
+  if (left.interactiveAncestorSelector && left.interactiveAncestorSelector === right.interactiveAncestorSelector) return false;
+  if (!left.occludes?.includes(right.selector) && !right.occludes?.includes(left.selector)) return false;
+  return overlapRatio(left.boundingBox, right.boundingBox, overlapBox) >= 0.1;
+}
+
+function overlapRatio(left: TlxBoundingBox, right: TlxBoundingBox, overlapBox: TlxBoundingBox) {
+  return area(overlapBox) / Math.max(1, Math.min(area(left), area(right)));
+}
+
+function overflowAmount(box: TlxBoundingBox, viewport: { width: number }) {
+  return Math.max(0, -box.x, box.x + box.width - viewport.width);
+}
+
+function describeElement(element: ScannedElement) {
+  const text = element.text ? ` "${element.text.slice(0, 40)}"` : '';
+  return `${element.tagName.toLowerCase()} ${element.selector}${text}`;
 }
 
 function contains(outer: TlxBoundingBox, inner: TlxBoundingBox) {

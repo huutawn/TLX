@@ -48,6 +48,7 @@ func NewCommand(ctx context.Context, cfg config.Config) (*exec.Cmd, error) {
 	cmd.Dir = cfg.ProjectPath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	configureProcessGroup(cmd)
 	cmd.Env = append(os.Environ(),
 		"TLX_HOST=go",
 		"TLX_WORKER_PORT="+strconv.Itoa(cfg.DashboardPort),

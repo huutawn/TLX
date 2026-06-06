@@ -17,6 +17,8 @@ import (
 	"tlx/internal/worker"
 )
 
+const workerShutdownTimeout = 12 * time.Second
+
 func Run(ctx context.Context, cfg config.Config) error {
 	ctx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
@@ -88,14 +90,14 @@ func shutdownWorker(cmd *exec.Cmd, cancel context.CancelFunc, exited <-chan erro
 		return
 	}
 
-	_ = cmd.Process.Signal(os.Interrupt)
+	signalWorker(cmd, os.Interrupt)
 
 	select {
 	case <-exited:
 		cancel()
 		return
-	case <-time.After(5 * time.Second):
+	case <-time.After(workerShutdownTimeout):
 		cancel()
-		_ = cmd.Process.Kill()
+		killWorker(cmd)
 	}
 }

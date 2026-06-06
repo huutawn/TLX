@@ -48,6 +48,7 @@ export class LaravelStrategy implements FrameworkStrategy {
         framework: this.name,
         components,
         apis,
+        links: [],
       });
     }
 
@@ -99,6 +100,7 @@ export class LaravelStrategy implements FrameworkStrategy {
           framework: this.name,
           components,
           apis,
+          links: [],
         });
       }
 

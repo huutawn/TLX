@@ -40,6 +40,7 @@ export class PhpStrategy implements FrameworkStrategy {
         framework: this.name,
         components,
         apis,
+        links: [],
       });
     }
 

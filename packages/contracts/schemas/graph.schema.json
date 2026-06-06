@@ -33,13 +33,18 @@
         "type": { "const": "component" },
         "name": { "type": "string" },
         "filePath": { "type": "string" },
-        "importedFrom": { "type": "string" }
+        "importedFrom": { "type": "string" },
+        "parentId": { "type": "string" },
+        "parentIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
       }
     },
     "pageNode": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "type", "name", "route", "filePath", "framework", "components", "apis"],
+      "required": ["id", "type", "name", "route", "filePath", "framework", "components", "apis", "links"],
       "properties": {
         "id": { "type": "string" },
         "type": { "const": "page" },
@@ -54,6 +59,10 @@
         "apis": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "links": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
@@ -63,7 +72,7 @@
       "required": ["id", "type", "source", "target"],
       "properties": {
         "id": { "type": "string" },
-        "type": { "enum": ["page_uses_component", "page_calls_api"] },
+        "type": { "enum": ["page_uses_component", "component_uses_component", "page_calls_api", "page_links_page"] },
         "source": { "type": "string" },
         "target": { "type": "string" },
         "label": { "type": "string" }

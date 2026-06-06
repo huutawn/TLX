@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { exec, spawn, type ChildProcess } from 'child_process';
 import fs from 'fs/promises';
+import type { Server } from 'http';
 import net from 'net';
 import os from 'os';
 import path from 'path';
@@ -26,21 +27,21 @@ interface TargetProcess {
   url: string;
 }
 
-function signalTargetProcess(targetProcess: TargetProcess | undefined, signal: NodeJS.Signals = 'SIGINT') {
+function signalTargetProcess(targetProcess: TargetProcess | undefined, signal: NodeJS.Signals = 'SIGINT'): boolean {
   const pid = targetProcess?.process.pid;
   if (!targetProcess || !pid) {
-    return;
+    return false;
   }
 
   if (process.platform === 'win32') {
-    targetProcess.process.kill(signal);
-    return;
+    return targetProcess.process.kill(signal);
   }
 
   try {
     process.kill(-pid, signal);
+    return true;
   } catch {
-    targetProcess.process.kill(signal);
+    return targetProcess.process.kill(signal);
   }
 }
 
@@ -64,6 +65,77 @@ function forceKillTargetProcess(targetProcess: TargetProcess | undefined) {
   } catch {
     targetProcess.process.kill('SIGKILL');
   }
+}
+
+async function stopTargetProcess(targetProcess: TargetProcess | undefined): Promise<void> {
+  if (!targetProcess) {
+    console.log('[TLX] Target app was not started by TLX. Leaving it running.');
+    return;
+  }
+
+  if (!targetProcess.process.pid) {
+    return;
+  }
+
+  console.log(`[TLX] Stopping target app started by TLX: ${targetProcess.url}`);
+  const exited = waitForProcessExit(targetProcess.process);
+  const endpoint = resolveTargetEndpoint(targetProcess.url);
+  signalTargetProcess(targetProcess, 'SIGINT');
+
+  if (endpoint && await waitForPortClosed(endpoint.host, endpoint.port, 5_000)) {
+    console.log('[TLX] Target app stopped.');
+    return;
+  }
+
+  if (!endpoint && await waitWithTimeout(exited, 5_000)) {
+    console.log('[TLX] Target app stopped.');
+    return;
+  }
+
+  console.log('[TLX] Target app did not stop after SIGINT. Forcing shutdown...');
+  forceKillTargetProcess(targetProcess);
+  if (endpoint) {
+    await waitForPortClosed(endpoint.host, endpoint.port, 2_000);
+  } else {
+    await waitWithTimeout(exited, 2_000);
+  }
+}
+
+function resolveTargetEndpoint(targetUrl: string): { host: string; port: number } | undefined {
+  try {
+    const url = new URL(targetUrl);
+    const port = Number.parseInt(url.port, 10);
+    if (!Number.isFinite(port) || port <= 0) {
+      return undefined;
+    }
+
+    return { host: url.hostname || 'localhost', port };
+  } catch {
+    return undefined;
+  }
+}
+
+function waitForProcessExit(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.killed) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    child.once('exit', () => resolve());
+  });
+}
+
+function waitWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    promise.then(() => {
+      clearTimeout(timer);
+      resolve(true);
+    }).catch(() => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
 }
 
 function openBrowser(url: string) {
@@ -130,6 +202,49 @@ async function waitForPort(host: string, port: number, timeoutMs = TARGET_START_
   }
 
   throw new Error(`Target app did not open port ${port} after ${timeoutMs / 1000}s`);
+}
+
+async function waitForPortClosed(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!await isPortOpen(host, port)) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  return false;
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve) => {
+    let resolved = false;
+    let forceTimer: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      if (resolved) {
+        return;
+      }
+
+      resolved = true;
+      clearTimeout(forceTimer);
+      resolve();
+    };
+    forceTimer = setTimeout(() => {
+      server.closeAllConnections?.();
+      finish();
+    }, 2_000);
+
+    server.close((err) => {
+      if (err) {
+        console.error('[TLX] Failed to close local server:', err.message);
+      }
+
+      finish();
+    });
+    server.closeIdleConnections?.();
+  });
 }
 
 async function waitForTargetReady(child: ChildProcess, host: string, port: number): Promise<void> {
@@ -298,26 +413,20 @@ export async function startTlx(options: StartTlxOptions = {}) {
   });
 
   let isShuttingDown = false;
-  const shutdown = () => {
+  const shutdown = async () => {
     if (isShuttingDown) {
       return;
     }
 
     isShuttingDown = true;
     console.log('\n[TLX] Shutting down local server...');
-    signalTargetProcess(targetProcess);
-    server.close(() => {
-      console.log('[TLX] Local server stopped.');
-    });
-
-    setTimeout(() => {
-      forceKillTargetProcess(targetProcess);
-      process.exit(1);
-    }, 5_000).unref();
+    await stopTargetProcess(targetProcess);
+    await closeServer(server);
+    console.log('[TLX] Local server stopped.');
   };
 
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
 
   return new Promise<void>((resolve, reject) => {
     server.once('error', reject);

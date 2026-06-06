@@ -62,6 +62,7 @@ export class EngineService {
       relativeScreenshotPath: (id, fileName) => storage.relativeScreenshotPath(id, fileName),
       config,
       apiEndpoints: options.project.scanGraph.apis,
+      discoverRoutes: requestedScope === 'all',
     });
     const finishedAt = new Date().toISOString();
     const warnings = [...scan.warnings];
@@ -73,9 +74,9 @@ export class EngineService {
       scope: requestedScope,
       startedAt,
       finishedAt,
-      success: scan.issues.every((issue) => issue.severity !== 'error'),
+      success: scan.artifactErrors.length === 0 && scan.issues.every((issue) => issue.severity !== 'error'),
       summary: {
-        routesScanned: targets.length,
+        routesScanned: scan.routesScanned,
         elementsScanned: scan.elementsScanned,
         issuesFound: scan.issues.length,
         screenshotsCaptured: scan.screenshots.length,

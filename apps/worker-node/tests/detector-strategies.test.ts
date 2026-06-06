@@ -24,14 +24,28 @@ describe('DetectorService framework strategies', () => {
         },
       }),
       'app/page.tsx': `
+        import Link from 'next/link';
         import HeroCard from '../components/HeroCard';
+        import { StatsService } from '../services/stats.service';
+        import { apiClient } from '../services/api-client';
 
         export default async function Home() {
+          await StatsService.load();
           await fetch('/api/stats');
-          return <HeroCard />;
+          await apiClient.get('/api/campaigns');
+          return <><Link href="/campaigns">Campaigns</Link><HeroCard /></>;
         }
       `,
-      'components/HeroCard.tsx': `export default function HeroCard() { return <section />; }`,
+      'app/campaigns/page.tsx': `export default function Campaigns() { return <main />; }`,
+      'app/api/campaigns/route.ts': `export async function GET() { return Response.json([]); }`,
+      'pages/api/legacy/[id].ts': `export default function handler() {}`,
+      'components/HeroCard.tsx': `
+        import CtaButton from './CtaButton';
+        export default function HeroCard() { return <section><CtaButton /></section>; }
+      `,
+      'components/CtaButton.tsx': `export default function CtaButton() { return <button />; }`,
+      'services/stats.service.ts': `export const StatsService = { load: () => fetch('/api/service-stats') };`,
+      'services/api-client.ts': `export const apiClient = { get: (path: string) => fetch(path), loadUser: (id: string) => axios.get(\`/api/users/\${id}\`) };`,
     });
 
     const result = await new DetectorService().detectProject(rootDir);
@@ -39,9 +53,18 @@ describe('DetectorService framework strategies', () => {
     expect(result.framework).toBe('next');
     expect(result.scanGraph.pages[0]?.route).toBe('/');
     expect(result.scanGraph.pages[0]?.components.map((component) => component.name)).toContain('HeroCard');
+    expect(result.scanGraph.pages[0]?.components.map((component) => component.name)).toContain('CtaButton');
+    expect(result.scanGraph.pages[0]?.components.map((component) => component.name)).not.toContain('StatsService');
     expect(result.scanGraph.pages[0]?.apis).toContain('/api/stats');
+    expect(result.scanGraph.pages[0]?.apis).toContain('/api/service-stats');
+    expect(result.scanGraph.pages[0]?.apis).toContain('/api/campaigns');
+    expect(result.scanGraph.pages[0]?.apis).toContain('/api/users/:param');
+    expect(result.scanGraph.apis).toContain('/api/legacy/:id');
+    expect(result.scanGraph.pages[0]?.links).toContain('/campaigns');
     expect(result.scanGraph.edges.some((edge) => edge.type === 'page_uses_component')).toBe(true);
+    expect(result.scanGraph.edges.some((edge) => edge.type === 'component_uses_component')).toBe(true);
     expect(result.scanGraph.edges.some((edge) => edge.type === 'page_calls_api')).toBe(true);
+    expect(result.scanGraph.edges.some((edge) => edge.type === 'page_links_page')).toBe(true);
   });
 
   test('extracts Vue/Vite views, imported components, and dynamic APIs', async () => {
@@ -67,7 +90,7 @@ describe('DetectorService framework strategies', () => {
     expect(result.framework).toBe('vue-vite');
     expect(result.scanGraph.pages[0]?.route).toBe('/home');
     expect(result.scanGraph.pages[0]?.components.map((component) => component.name)).toContain('UserCard');
-    expect(result.scanGraph.pages[0]?.apis).toContain('<dynamic>');
+    expect(result.scanGraph.pages[0]?.apis).toContain('/api/users/:param');
   });
 
   test('extracts Laravel routes, Blade pages, includes, and APIs', async () => {

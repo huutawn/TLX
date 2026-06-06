@@ -19,6 +19,8 @@ const SKIPPED_DIRECTORIES = new Set([
 const HTTP_CALL_PATTERN =
   /\b(?:fetch|ofetch|useFetch|ky|axios)(?:\.[A-Za-z_$][\w$]*)?\s*\(\s*([\s\S]*?)(?=\))/g;
 const JQUERY_AJAX_PATTERN = /\$\s*\.\s*ajax\s*\(\s*([\s\S]*?)(?=\))/g;
+const HTTP_METHOD_CALL_PATTERN =
+  /\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?\s*\.\s*(?:get|post|put|patch|delete|head|options|request)\s*\(\s*([\s\S]*?)(?=\))/g;
 
 export interface WalkOptions {
   extensions?: string[];
@@ -172,6 +174,7 @@ export function extractHttpApisFromSource(source: string): string[] {
   const apis = new Set<string>();
 
   collectHttpMatches(source, HTTP_CALL_PATTERN, apis);
+  collectHttpMatches(source, HTTP_METHOD_CALL_PATTERN, apis);
   collectHttpMatches(source, JQUERY_AJAX_PATTERN, apis);
 
   return [...apis];
@@ -329,11 +332,12 @@ export function resolveImportPath(fromFile: string, importPath: string): string 
 }
 
 function collectHttpMatches(source: string, pattern: RegExp, apis: Set<string>): void {
+  pattern.lastIndex = 0;
   let match = pattern.exec(source);
 
   while (match) {
     const argumentSource = match[1]?.trim() ?? '';
-    const api = extractStaticUrl(argumentSource) ?? (argumentSource.length > 0 ? '<dynamic>' : undefined);
+    const api = extractStaticUrl(argumentSource) ?? (hasLikelyDynamicUrl(argumentSource) ? '<dynamic>' : undefined);
 
     if (api) {
       apis.add(api);
@@ -343,6 +347,10 @@ function collectHttpMatches(source: string, pattern: RegExp, apis: Set<string>):
   }
 }
 
+function hasLikelyDynamicUrl(argumentSource: string): boolean {
+  return /^`/.test(argumentSource) || /^['"][^'"]*['"]\s*\+/.test(argumentSource) || /new\s+URL\s*\(/.test(argumentSource);
+}
+
 function extractStaticUrl(argumentSource: string): string | undefined {
   const stringValue = extractFirstString(argumentSource);
 
@@ -350,10 +358,16 @@ function extractStaticUrl(argumentSource: string): string | undefined {
     return stringValue;
   }
 
-  const objectUrlMatch = /(?:url|uri)\s*:\s*(['"`])([^'"`]+)\1/.exec(argumentSource);
+  const objectUrlMatch = /(?:baseURL|baseUrl|endpoint|path|url|uri)\s*:\s*(['"`])([\s\S]*?)\1/.exec(argumentSource);
 
   if (objectUrlMatch?.[2]) {
-    return objectUrlMatch[2];
+    return normalizeExtractedUrl(objectUrlMatch[2], objectUrlMatch[1]);
+  }
+
+  const newUrlMatch = /new\s+URL\s*\(\s*(['"`])([\s\S]*?)\1/.exec(argumentSource);
+
+  if (newUrlMatch?.[2]) {
+    return normalizeExtractedUrl(newUrlMatch[2], newUrlMatch[1]);
   }
 
   return undefined;
@@ -369,11 +383,31 @@ function extractFirstString(source: string): string | undefined {
   const quote = match[1];
   const value = match[2];
 
-  if (!value || (quote === '`' && value.includes('${'))) {
+  if (!value) {
     return undefined;
   }
 
-  return value;
+  const normalized = normalizeExtractedUrl(value, quote);
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (/^(['"`])[^'"`]*\1\s*\+/.test(source)) {
+    return normalized.endsWith('/') ? `${normalized}:param` : `${normalized}/:param`;
+  }
+
+  return normalized;
+}
+
+function normalizeExtractedUrl(value: string, quote: string | undefined): string | undefined {
+  const normalized = quote === '`' ? value.replace(/\$\{[^}]+\}/g, ':param') : value;
+  const trimmed = normalized.trim();
+
+  if (!trimmed || trimmed === ':param') {
+    return undefined;
+  }
+
+  return trimmed.replace(/\/+:param/g, '/:param').replace(/:param:+/g, ':param');
 }
 
 function extractComponentImports(source: string, filePath: string): Map<string, ComponentNode> {

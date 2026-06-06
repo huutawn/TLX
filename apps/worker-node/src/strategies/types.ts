@@ -15,6 +15,8 @@ export interface ComponentNode {
   name: string;
   filePath: string;
   importedFrom?: string;
+  parentId?: string;
+  parentIds?: string[];
 }
 
 export interface PageNode {
@@ -26,9 +28,10 @@ export interface PageNode {
   framework: string;
   components: ComponentNode[];
   apis: string[];
+  links: string[];
 }
 
-export type GraphEdgeType = 'page_uses_component' | 'page_calls_api';
+export type GraphEdgeType = 'page_uses_component' | 'component_uses_component' | 'page_calls_api' | 'page_links_page';
 
 export interface GraphEdge {
   id: string;
@@ -58,4 +61,5 @@ export interface FrameworkStrategy {
   extractPages(rootDir: string, astParser: AstParserService): Promise<PageNode[]>;
   extractComponents(filePath: string, astParser: AstParserService): Promise<ComponentNode[]>;
   extractApis(filePath: string, astParser: AstParserService): Promise<string[]>;
+  extractApiEndpoints?(rootDir: string, astParser: AstParserService): Promise<string[]>;
 }
