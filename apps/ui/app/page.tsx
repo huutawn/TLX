@@ -17,6 +17,8 @@ export default function Home() {
   const [selectedRoute, setSelectedRoute] = useState<string>("/");
   const [selectedIssue, setSelectedIssue] = useState<TlxScanIssue | undefined>();
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
+  const [issueKindFilter, setIssueKindFilter] = useState<string>("all");
+  const [issueViewportFilter, setIssueViewportFilter] = useState<string>("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -29,6 +31,13 @@ export default function Home() {
   }, [graph, selectedNodeId]);
 
   const issueImage = selectedIssue?.screenshotPath ? `/${selectedIssue.screenshotPath.replace(/^\.\//, "")}` : undefined;
+  const filteredIssues = useMemo(() => {
+    return (report?.issues ?? []).filter((issue) => {
+      const viewport = String(issue.metadata.viewport ?? issue.metadata.viewportName ?? "unknown");
+      return (issueKindFilter === "all" || issue.kind === issueKindFilter) && (issueViewportFilter === "all" || viewport === issueViewportFilter);
+    });
+  }, [report, issueKindFilter, issueViewportFilter]);
+  const issueViewports = useMemo(() => [...new Set((report?.issues ?? []).map((issue) => String(issue.metadata.viewport ?? issue.metadata.viewportName ?? "unknown")))], [report]);
 
   async function refresh() {
     setError(undefined);
@@ -116,14 +125,29 @@ export default function Home() {
               <Metric label="Issues" value={String(report?.summary.issuesFound ?? 0)} />
               <Metric label="Screenshots" value={String(report?.summary.screenshotsCaptured ?? 0)} />
             </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <select className="field" value={issueKindFilter} onChange={(event) => setIssueKindFilter(event.target.value)}>
+                <option value="all">All issue kinds</option>
+                {['overlap', 'overflow', 'contrast', 'crawler', 'api'].map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+              </select>
+              <select className="field" value={issueViewportFilter} onChange={(event) => setIssueViewportFilter(event.target.value)}>
+                <option value="all">All viewports</option>
+                {issueViewports.map((viewport) => <option key={viewport} value={viewport}>{viewport}</option>)}
+              </select>
+            </div>
             <div className="mt-4 max-h-72 overflow-auto border-t border-zinc-800 pt-3">
-              {(report?.issues.length ?? 0) === 0 ? <p className="text-sm text-zinc-500">No issues in latest report</p> : report?.issues.map((issue) => (
+              {(report?.issues.length ?? 0) === 0 ? <p className="text-sm text-zinc-500">No issues in latest report</p> : filteredIssues.map((issue) => (
                 <button key={issue.id} className={`issue-row ${selectedIssue?.id === issue.id ? "issue-row-active" : ""}`} onClick={() => setSelectedIssue(issue)}>
                   <span className="font-medium">{issue.kind}</span>
-                  <span className="text-zinc-400">{issue.route}</span>
-                  <span className="truncate">{issue.message}</span>
+                  <span className="text-zinc-400">{String(issue.metadata.viewport ?? issue.metadata.viewportName ?? "-")}</span>
+                  <span className="truncate text-zinc-400">{issue.route}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate">{issue.message}</span>
+                    <span className="block truncate text-xs text-zinc-500">{String(issue.metadata.areaLabel ?? issue.selector)}</span>
+                  </span>
                 </button>
               ))}
+              {(report?.issues.length ?? 0) > 0 && filteredIssues.length === 0 ? <p className="text-sm text-zinc-500">No issues match filters</p> : null}
             </div>
           </Panel>
         </section>
@@ -134,20 +158,9 @@ export default function Home() {
           </Panel>
           <Panel title="Visual Bug Viewer">
             {selectedIssue && issueImage ? (
-              <div className="relative overflow-hidden border border-zinc-800 bg-black">
-                <img className="block w-full" src={issueImage} alt={selectedIssue.message} />
-                <div
-                  className="absolute border-2 border-rose-400 bg-rose-500/20"
-                  style={{
-                    left: `${selectedIssue.boundingBox.x / 12.8}%`,
-                    top: `${selectedIssue.boundingBox.y / 8}%`,
-                    width: `${Math.max(1, selectedIssue.boundingBox.width / 12.8)}%`,
-                    height: `${Math.max(1, selectedIssue.boundingBox.height / 8)}%`,
-                  }}
-                />
-              </div>
+              <IssueImage issue={selectedIssue} image={issueImage} />
             ) : <p className="text-sm text-zinc-500">Select an issue with screenshot</p>}
-            {selectedIssue ? <pre className="mt-3 whitespace-pre-wrap text-xs text-zinc-300">{JSON.stringify(selectedIssue, null, 2)}</pre> : null}
+            {selectedIssue ? <pre className="mt-3 whitespace-pre-wrap text-xs text-zinc-300">{JSON.stringify(issueDetails(selectedIssue), null, 2)}</pre> : null}
           </Panel>
         </section>
       </div>
@@ -205,6 +218,43 @@ function ProjectMap({ graph, selectedNodeId, issueRoutes, affectedRoutes, onSele
 
 function Node({ x, y, width, label, color, active, onClick }: { x: number; y: number; width: number; label: string; color: string; active: boolean; onClick(): void }) {
   return <g onClick={onClick} className="cursor-pointer"><rect x={x} y={y - 22} width={width} height={44} fill="#18181b" stroke={active ? "#f8fafc" : color} strokeWidth={active ? 2 : 1} /><circle cx={x + 16} cy={y} r={5} fill={color} /><text x={x + 30} y={y + 5} fill="#f4f4f5" fontSize="13">{label}</text></g>;
+}
+
+function IssueImage({ issue, image }: { issue: TlxScanIssue; image: string }) {
+  const sourceWidth = Number(issue.metadata.viewportWidth ?? 1280);
+  const sourceHeight = Number(issue.metadata.viewportHeight ?? 800);
+  return (
+    <div className="relative overflow-hidden border border-zinc-800 bg-black">
+      <img className="block w-full" src={image} alt={issue.message} />
+      <div
+        className="absolute border-2 border-rose-400 bg-rose-500/20"
+        style={{
+          left: `${(issue.boundingBox.x / sourceWidth) * 100}%`,
+          top: `${(issue.boundingBox.y / sourceHeight) * 100}%`,
+          width: `${Math.max(1, (issue.boundingBox.width / sourceWidth) * 100)}%`,
+          height: `${Math.max(1, (issue.boundingBox.height / sourceHeight) * 100)}%`,
+        }}
+      />
+    </div>
+  );
+}
+
+function issueDetails(issue: TlxScanIssue) {
+  return {
+    kind: issue.kind,
+    severity: issue.severity,
+    route: issue.route,
+    url: issue.url,
+    viewport: issue.metadata.viewport ?? issue.metadata.viewportName,
+    area: issue.metadata.areaLabel,
+    areaSelector: issue.metadata.areaSelector,
+    selector: issue.selector,
+    otherSelector: issue.metadata.otherSelector,
+    evidence: issue.metadata.evidence,
+    fixHint: issue.metadata.fixHint,
+    boundingBox: issue.boundingBox,
+    message: issue.message,
+  };
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {

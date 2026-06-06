@@ -54,7 +54,7 @@ body {
 .issue-row {
   display: grid;
   width: 100%;
-  grid-template-columns: 84px 72px minmax(0, 1fr);
+  grid-template-columns: 74px 82px 72px minmax(0, 1fr);
   gap: 8px;
   border-bottom: 1px solid #27272a;
   padding: 8px 0;

@@ -26,21 +26,21 @@ interface TargetProcess {
   url: string;
 }
 
-function signalTargetProcess(targetProcess: TargetProcess | undefined, signal: NodeJS.Signals = 'SIGINT') {
+function signalTargetProcess(targetProcess: TargetProcess | undefined, signal: NodeJS.Signals = 'SIGINT'): boolean {
   const pid = targetProcess?.process.pid;
   if (!targetProcess || !pid) {
-    return;
+    return false;
   }
 
   if (process.platform === 'win32') {
-    targetProcess.process.kill(signal);
-    return;
+    return targetProcess.process.kill(signal);
   }
 
   try {
     process.kill(-pid, signal);
+    return true;
   } catch {
-    targetProcess.process.kill(signal);
+    return targetProcess.process.kill(signal);
   }
 }
 
@@ -64,6 +64,53 @@ function forceKillTargetProcess(targetProcess: TargetProcess | undefined) {
   } catch {
     targetProcess.process.kill('SIGKILL');
   }
+}
+
+async function stopTargetProcess(targetProcess: TargetProcess | undefined): Promise<void> {
+  if (!targetProcess) {
+    console.log('[TLX] Target app was not started by TLX. Leaving it running.');
+    return;
+  }
+
+  if (!targetProcess.process.pid || targetProcess.process.exitCode !== null || targetProcess.process.killed) {
+    return;
+  }
+
+  console.log(`[TLX] Stopping target app started by TLX: ${targetProcess.url}`);
+  const exited = waitForProcessExit(targetProcess.process);
+  signalTargetProcess(targetProcess, 'SIGINT');
+
+  if (await waitWithTimeout(exited, 5_000)) {
+    console.log('[TLX] Target app stopped.');
+    return;
+  }
+
+  console.log('[TLX] Target app did not stop after SIGINT. Forcing shutdown...');
+  forceKillTargetProcess(targetProcess);
+  await waitWithTimeout(exited, 2_000);
+}
+
+function waitForProcessExit(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.killed) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    child.once('exit', () => resolve());
+  });
+}
+
+function waitWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    promise.then(() => {
+      clearTimeout(timer);
+      resolve(true);
+    }).catch(() => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
 }
 
 function openBrowser(url: string) {
@@ -298,26 +345,21 @@ export async function startTlx(options: StartTlxOptions = {}) {
   });
 
   let isShuttingDown = false;
-  const shutdown = () => {
+  const shutdown = async () => {
     if (isShuttingDown) {
       return;
     }
 
     isShuttingDown = true;
     console.log('\n[TLX] Shutting down local server...');
-    signalTargetProcess(targetProcess);
+    await stopTargetProcess(targetProcess);
     server.close(() => {
       console.log('[TLX] Local server stopped.');
     });
-
-    setTimeout(() => {
-      forceKillTargetProcess(targetProcess);
-      process.exit(1);
-    }, 5_000).unref();
   };
 
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
 
   return new Promise<void>((resolve, reject) => {
     server.once('error', reject);
