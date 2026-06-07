@@ -67,6 +67,7 @@ export function createServer(context: TlxRuntimeContext): express.Express {
 
 function resolveUiOutDir(): string | undefined {
   const candidates = [
+    path.resolve(import.meta.dir, '../../../apps/ui/out'),
     path.resolve(import.meta.dir, '../../../ui/out'),
     path.resolve(import.meta.dir, '../../../../apps/ui/out'),
     path.resolve(process.cwd(), 'apps/ui/out'),
