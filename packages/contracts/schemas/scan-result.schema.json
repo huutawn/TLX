@@ -33,7 +33,7 @@
       "required": ["id", "kind", "severity", "message", "route", "url", "selector", "boundingBox", "metadata"],
       "properties": {
         "id": { "type": "string" },
-        "kind": { "enum": ["overlap", "overflow", "contrast", "crawler", "api"] },
+        "kind": { "enum": ["overlap", "overflow", "contrast", "crawler", "api", "auth_required", "auth_failed"] },
         "severity": { "enum": ["info", "warning", "error"] },
         "message": { "type": "string" },
         "route": { "type": "string" },

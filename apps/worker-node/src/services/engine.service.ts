@@ -1,5 +1,8 @@
 import os from 'os';
-import type { TlxCacheDiffResponse, TlxScanActionRequest, TlxScanReport, TlxScanResultResponse, TlxScanScope } from '@tlx/contracts';
+import fs from 'fs/promises';
+import path from 'path';
+import { chromium } from 'playwright';
+import type { TlxAuthActionResponse, TlxAuthStartRequest, TlxAuthStatusResponse, TlxCacheDiffResponse, TlxScanActionRequest, TlxScanReport, TlxScanResultResponse, TlxScanScope } from '@tlx/contracts';
 import type { ProjectMetadata } from './detector.service';
 import { DiffService } from './diff.service';
 import { ProjectStorageService, type TlxProjectConfig } from './storage.service';
@@ -35,14 +38,55 @@ export class EngineService {
     return new ProjectStorageService(project.rootDir).readLatestReport();
   }
 
+  async getAuthStatus(project: ProjectMetadata): Promise<TlxAuthStatusResponse> {
+    const storage = new ProjectStorageService(project.rootDir);
+    const config = await storage.readConfig();
+    return createAuthStatus(storage, config, await storage.authStorageStateExists(config));
+  }
+
+  async clearAuth(project: ProjectMetadata): Promise<TlxAuthActionResponse> {
+    const storage = new ProjectStorageService(project.rootDir);
+    const config = await storage.readConfig();
+    await storage.clearAuthStorageState(config);
+    return { ...(await createAuthStatus(storage, config, false)), success: true, message: 'Auth state cleared.' };
+  }
+
+  async startManualAuth(project: ProjectMetadata, projectUrl: string, request: TlxAuthStartRequest): Promise<TlxAuthActionResponse> {
+    const storage = new ProjectStorageService(project.rootDir);
+    const config = await storage.readConfig();
+    const profile = request.profile ?? config.auth.profile;
+    const loginUrl = request.loginUrl ?? config.auth.loginUrl ?? projectUrl;
+    const timeoutMs = clampTimeout(request.timeoutMs);
+    const storageStatePath = storage.resolveAuthStorageStatePath(config, profile);
+
+    await fs.mkdir(path.dirname(storageStatePath), { recursive: true });
+    const browser = await chromium.launch({ headless: false });
+    try {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForEvent('close', { timeout: timeoutMs }).catch(async () => {
+        await page.close().catch(() => undefined);
+      });
+      await context.storageState({ path: storageStatePath });
+      await context.close();
+    } finally {
+      await browser.close();
+    }
+
+    const status = await createAuthStatus(storage, { ...config, auth: { ...config.auth, mode: 'manual', profile } }, true);
+    return { ...status, success: true, message: 'Auth state saved.' };
+  }
+
   async runProjectScan(options: RunProjectScanOptions): Promise<TlxScanResultResponse> {
     const startedAt = new Date().toISOString();
     const storage = new ProjectStorageService(options.project.rootDir);
     const config = await storage.readConfig();
-    const requestedScope = normalizeScope(options.scope ?? config.scan.defaultScope);
+    const initialScope = normalizeScope(options.scope ?? config.scan.defaultScope);
     const previous = await storage.readHashCache();
     const current = await storage.createSnapshot(options.project.scanGraph, config.scan.ignoredPaths);
     const diff = this.diffService.createDiff(previous, current, options.project.rootDir, options.project.scanGraph);
+    const requestedScope = initialScope === 'changed' && Object.keys(previous.files).length === 0 ? 'all' : initialScope;
     const scoped = this.diffService.resolveRoutes(requestedScope, options.route, diff, options.project.scanGraph);
     const reportId = createReportId();
 
@@ -56,6 +100,8 @@ export class EngineService {
 
     const targets = createTargets(scoped.routes, options.projectUrl);
     const screenshotDir = storage.screenshotReportDir(reportId);
+    const hasAuthState = await storage.authStorageStateExists(config);
+    const storageStatePath = hasAuthState ? storage.resolveAuthStorageStatePath(config) : undefined;
     const scan = await this.runner.scan(targets, {
       reportId,
       screenshotsDir: screenshotDir,
@@ -63,6 +109,7 @@ export class EngineService {
       config,
       apiEndpoints: options.project.scanGraph.apis,
       discoverRoutes: requestedScope === 'all',
+      storageStatePath,
     });
     const finishedAt = new Date().toISOString();
     const warnings = [...scan.warnings];
@@ -91,6 +138,23 @@ export class EngineService {
 
     return toResponse(report);
   }
+}
+
+async function createAuthStatus(storage: ProjectStorageService, config: TlxProjectConfig, authenticated: boolean): Promise<TlxAuthStatusResponse> {
+  const metadata = authenticated ? await storage.readAuthStorageStateMetadata(config) : undefined;
+  return {
+    mode: authenticated ? 'manual' : config.auth.mode,
+    profile: config.auth.profile,
+    authenticated,
+    storageStatePath: storage.relativeAuthStorageStatePath(config),
+    savedAt: metadata?.savedAt,
+    origins: metadata?.origins ?? [],
+  };
+}
+
+function clampTimeout(timeoutMs: number | undefined) {
+  if (!timeoutMs || !Number.isFinite(timeoutMs)) return 120_000;
+  return Math.max(5_000, Math.min(timeoutMs, 10 * 60_000));
 }
 
 function normalizeScope(scope: string): TlxScanScope {

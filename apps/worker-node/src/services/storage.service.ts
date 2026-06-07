@@ -11,6 +11,12 @@ export interface TlxScanViewport {
 }
 
 export interface TlxProjectConfig {
+  auth: {
+    mode: 'none' | 'manual';
+    profile: string;
+    loginUrl?: string;
+    storageStatePath?: string;
+  };
   scan: {
     defaultScope: 'changed' | 'all' | 'route';
     ignoredPaths: string[];
@@ -44,6 +50,10 @@ const DEFAULT_IGNORES = ['node_modules', 'dist', '.next', 'out', '.git', '.tlx']
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.vue', '.php', '.blade.php', '.css', '.scss', '.html']);
 
 export const DEFAULT_TLX_CONFIG: TlxProjectConfig = {
+  auth: {
+    mode: 'none',
+    profile: 'default',
+  },
   scan: {
     defaultScope: 'changed',
     ignoredPaths: DEFAULT_IGNORES,
@@ -63,6 +73,10 @@ export class ProjectStorageService {
 
   get screenshotsDir() {
     return path.join(this.tlxDir, 'screenshots');
+  }
+
+  get authDir() {
+    return path.join(this.tlxDir, 'auth');
   }
 
   async ensureProjectStorage() {
@@ -118,6 +132,53 @@ export class ProjectStorageService {
 
   async writeLatestReport(report: TlxScanReport): Promise<string[]> {
     return this.writeJsonFile(path.join(this.tlxDir, 'latest-report.json'), report);
+  }
+
+  resolveAuthStorageStatePath(config: TlxProjectConfig, profile = config.auth.profile) {
+    if (config.auth.storageStatePath) {
+      return path.isAbsolute(config.auth.storageStatePath) ? config.auth.storageStatePath : path.join(this.rootDir, config.auth.storageStatePath);
+    }
+
+    return path.join(this.authDir, `${safeProfileName(profile)}.json`);
+  }
+
+  relativeAuthStorageStatePath(config: TlxProjectConfig, profile = config.auth.profile) {
+    return normalizePath(path.relative(this.rootDir, this.resolveAuthStorageStatePath(config, profile)));
+  }
+
+  async authStorageStateExists(config: TlxProjectConfig, profile = config.auth.profile) {
+    try {
+      const stat = await fs.stat(this.resolveAuthStorageStatePath(config, profile));
+      return stat.isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  async readAuthStorageStateMetadata(config: TlxProjectConfig, profile = config.auth.profile): Promise<{ savedAt?: string; origins: string[] } | undefined> {
+    const filePath = this.resolveAuthStorageStatePath(config, profile);
+    const text = await this.readOptionalText(filePath);
+    if (!text) return undefined;
+
+    try {
+      const parsed = JSON.parse(text) as { origins?: Array<{ origin?: string }> };
+      const stat = await fs.stat(filePath);
+      return {
+        savedAt: stat.mtime.toISOString(),
+        origins: (parsed.origins ?? []).map((item) => item.origin).filter((origin): origin is string => Boolean(origin)),
+      };
+    } catch {
+      return { origins: [] };
+    }
+  }
+
+  async clearAuthStorageState(config: TlxProjectConfig, profile = config.auth.profile): Promise<boolean> {
+    try {
+      await fs.rm(this.resolveAuthStorageStatePath(config, profile), { force: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async createSnapshot(graph: ScanGraph, ignoredPaths: string[]): Promise<TlxHashCache> {
@@ -247,7 +308,20 @@ function parseConfig(contents: string): Partial<TlxProjectConfig> {
 
 function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value: string) {
   const scan = (config.scan ??= {} as TlxProjectConfig['scan']);
+  const auth = (config.auth ??= {} as TlxProjectConfig['auth']);
   switch (key) {
+    case 'auth.mode':
+      if (value === 'none' || value === 'manual') auth.mode = value;
+      break;
+    case 'auth.profile':
+      auth.profile = safeProfileName(value);
+      break;
+    case 'auth.loginUrl':
+      auth.loginUrl = value;
+      break;
+    case 'auth.storageStatePath':
+      auth.storageStatePath = value;
+      break;
     case 'scan.defaultScope':
     case 'defaultScope':
       if (value === 'changed' || value === 'all' || value === 'route') scan.defaultScope = value;
@@ -279,6 +353,10 @@ function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value
 }
 
 function mergeConfig(target: TlxProjectConfig, patch: Partial<TlxProjectConfig>) {
+  if (patch.auth) {
+    target.auth = { ...target.auth, ...patch.auth };
+  }
+
   if (!patch.scan) return;
   target.scan = {
     ...target.scan,
@@ -290,4 +368,8 @@ function mergeConfig(target: TlxProjectConfig, patch: Partial<TlxProjectConfig>)
 
 function parseBoolean(value: string) {
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function safeProfileName(value: string) {
+  return value.trim().replace(/[^a-z0-9._-]+/gi, '-').replace(/^-|-$/g, '') || 'default';
 }

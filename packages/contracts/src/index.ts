@@ -66,7 +66,7 @@ export interface TlxBoundingBox {
   height: number;
 }
 
-export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'crawler' | 'api';
+export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'crawler' | 'api' | 'auth_required' | 'auth_failed';
 export type TlxScanIssueSeverity = 'info' | 'warning' | 'error';
 
 export interface TlxScanIssue {
@@ -118,6 +118,26 @@ export interface TlxCacheDiffResponse {
 export interface TlxScanActionRequest {
   scope?: TlxScanScope;
   route?: string;
+}
+
+export interface TlxAuthStartRequest {
+  profile?: string;
+  loginUrl?: string;
+  timeoutMs?: number;
+}
+
+export interface TlxAuthStatusResponse {
+  mode: 'none' | 'manual';
+  profile: string;
+  authenticated: boolean;
+  storageStatePath?: string;
+  savedAt?: string;
+  origins: string[];
+}
+
+export interface TlxAuthActionResponse extends TlxAuthStatusResponse {
+  success: boolean;
+  message?: string;
 }
 
 export interface TlxScanResultResponse {

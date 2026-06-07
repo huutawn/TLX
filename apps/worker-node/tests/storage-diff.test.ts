@@ -29,7 +29,7 @@ describe('ProjectStorageService and DiffService', () => {
   test('loads root tlx.yaml config with legacy .tlx override', async () => {
     const rootDir = await createFixture({
       'tlx.yaml': 'scan.defaultScope: all\nscan.contrastRatio: 7\nscan.crawler.enabled: false\n',
-      '.tlx/tlx.yaml': 'scan.api.enabled: false\n',
+      '.tlx/tlx.yaml': 'scan.api.enabled: false\nauth.mode: manual\nauth.profile: qa-user\n',
     });
     const config = await new ProjectStorageService(rootDir).readConfig();
 
@@ -38,6 +38,8 @@ describe('ProjectStorageService and DiffService', () => {
     expect(config.scan.crawler.enabled).toBe(false);
     expect(config.scan.api.enabled).toBe(false);
     expect(config.scan.ignoredPaths).toContain('node_modules');
+    expect(config.auth.mode).toBe('manual');
+    expect(config.auth.profile).toBe('qa-user');
   });
 
   test('diff classifies first-run unknown, edits changed, deletes deleted, and affected routes', async () => {

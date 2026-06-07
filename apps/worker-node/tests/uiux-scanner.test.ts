@@ -7,6 +7,7 @@ import path from 'path';
 import { chromium } from 'playwright';
 import { analyzeElements, type ScannedElement } from '../src/scanner/ui-analyzer';
 import { PlaywrightScannerRunner } from '../src/scanner/playwright-runner';
+import { EngineService } from '../src/services/engine.service';
 import type { TlxProjectConfig } from '../src/services/storage.service';
 
 const tempRoots: string[] = [];
@@ -141,6 +142,140 @@ describe('UI/UX scanner Playwright fixtures', () => {
       });
 
       expect(result.routesScanned).toBe(2);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('runner scans every explicit graph target', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-explicit-routes-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === '/settings') return new Response('<main><h1>Settings</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        if (url.pathname === '/about') return new Response('<main><h1>About</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        return new Response('<main><h1>Home</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const port = server.port;
+      if (!port) throw new Error('test server did not start');
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([
+        { route: '/', url: `http://localhost:${port}/` },
+        { route: '/about', url: `http://localhost:${port}/about` },
+        { route: '/settings', url: `http://localhost:${port}/settings` },
+      ], {
+        reportId: 'explicit-routes',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      expect(result.routesScanned).toBe(3);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('first project scan defaults changed scope to all graph routes', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-first-scan-'));
+    tempRoots.push(root);
+    await fs.mkdir(path.join(root, 'app', 'about'), { recursive: true });
+    await fs.writeFile(path.join(root, 'app', 'page.tsx'), 'export default function Page() { return <main />; }', 'utf8');
+    await fs.writeFile(path.join(root, 'app', 'about', 'page.tsx'), 'export default function About() { return <main />; }', 'utf8');
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === '/about') return new Response('<main><h1>About</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        return new Response('<main><h1>Home</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+    const port = server.port;
+    if (!port) throw new Error('test server did not start');
+
+    try {
+      const result = await new EngineService().runProjectScan({
+        projectUrl: `http://localhost:${port}`,
+        project: {
+          framework: 'next',
+          port,
+          rootDir: root,
+          scanGraph: {
+            pages: [
+              { id: 'page-home', type: 'page', name: 'Home', route: '/', filePath: path.join(root, 'app', 'page.tsx'), framework: 'next', components: [], apis: [], links: [] },
+              { id: 'page-about', type: 'page', name: 'About', route: '/about', filePath: path.join(root, 'app', 'about', 'page.tsx'), framework: 'next', components: [], apis: [], links: [] },
+            ],
+            components: [],
+            apis: [],
+            edges: [],
+          },
+        },
+      });
+
+      expect(result.report.scope).toBe('all');
+      expect(result.report.summary.routesScanned).toBeGreaterThan(0);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('401 route reports auth_required without visual noise', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-auth-required-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response('Unauthorized', { status: 401 });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/admin', url: `http://localhost:${server.port}/admin` }], {
+        reportId: 'auth-required',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      expect(result.issues.map((issue) => issue.kind)).toEqual(['auth_required']);
+      expect(result.screenshots).toEqual([]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('403 route with storage state reports auth_failed', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-auth-failed-'));
+    tempRoots.push(root);
+    const storageStatePath = path.join(root, 'state.json');
+    await fs.writeFile(storageStatePath, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response('Forbidden', { status: 403 });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/admin', url: `http://localhost:${server.port}/admin` }], {
+        reportId: 'auth-failed',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+        storageStatePath,
+      });
+
+      expect(result.issues.map((issue) => issue.kind)).toEqual(['auth_failed']);
     } finally {
       server.stop(true);
     }
@@ -288,6 +423,7 @@ async function exists(filePath: string) {
 
 function testConfig(): TlxProjectConfig {
   return {
+    auth: { mode: 'none', profile: 'default' },
     scan: {
       defaultScope: 'all',
       ignoredPaths: [],

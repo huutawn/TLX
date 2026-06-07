@@ -7,7 +7,7 @@ describe('Phase 2 contract schemas', () => {
     const schema = await readSchema('scan-result.schema.json');
     expect(schema.required).toContain('report');
     expect(schema.$defs.report.required).toEqual(['id', 'scope', 'startedAt', 'finishedAt', 'success', 'summary', 'issues', 'screenshots', 'warnings']);
-    expect(schema.$defs.issue.properties.kind.enum).toEqual(['overlap', 'overflow', 'contrast', 'crawler', 'api']);
+    expect(schema.$defs.issue.properties.kind.enum).toEqual(['overlap', 'overflow', 'contrast', 'crawler', 'api', 'auth_required', 'auth_failed']);
   });
 
   test('cache-diff schema exposes four buckets and affected routes', async () => {

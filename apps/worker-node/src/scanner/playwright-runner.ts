@@ -19,6 +19,7 @@ export interface PlaywrightScanOptions {
   config: TlxProjectConfig;
   apiEndpoints: string[];
   discoverRoutes?: boolean;
+  storageStatePath?: string;
 }
 
 export interface PlaywrightScanResult {
@@ -51,7 +52,11 @@ export class PlaywrightScannerRunner {
     await fs.mkdir(options.screenshotsDir, { recursive: true });
 
     for (const viewport of options.config.scan.viewports) {
-      const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        ...(options.storageStatePath ? { storageState: options.storageStatePath } : {}),
+      });
+      const page = await context.newPage();
       const consoleErrors: string[] = [];
       page.on('console', (message) => {
         if (message.type() === 'error') consoleErrors.push(message.text());
@@ -65,6 +70,11 @@ export class PlaywrightScannerRunner {
           if (!target) continue;
           const response = await page.goto(target.url, { waitUntil: 'networkidle' });
           scannedRoutes.add(target.route);
+          if (response && (response.status() === 401 || response.status() === 403)) {
+            issues.push(createAuthIssue(target, response.status(), viewport.name, Boolean(options.storageStatePath)));
+            continue;
+          }
+
           if (response && response.status() >= 400) {
             issues.push(createSyntheticIssue('crawler', target, `Route returned HTTP ${response.status()}. Fix: verify this page exists, the dev server route is correct, and required data loaders do not fail.`, { status: response.status(), viewport: viewport.name }));
           }
@@ -116,6 +126,7 @@ export class PlaywrightScannerRunner {
         warnings.push(`[${viewport.name}] ${message}`);
       } finally {
         await page.close();
+        await context.close();
       }
     }
 
@@ -383,6 +394,25 @@ function createSyntheticIssue(kind: 'crawler' | 'api', target: RouteScanTarget, 
     selector: 'document',
     boundingBox: { x: 0, y: 0, width: 0, height: 0 },
     metadata,
+  };
+}
+
+function createAuthIssue(target: RouteScanTarget, status: number, viewportName: string, hasStorageState: boolean): TlxScanIssue {
+  const kind = hasStorageState ? 'auth_failed' : 'auth_required';
+  const message = hasStorageState
+    ? `Route returned HTTP ${status} with saved auth state. Fix: refresh the TLX auth session or use an account with access to this route.`
+    : `Route returned HTTP ${status} and requires authentication. Fix: run TLX auth login, then rerun the scan.`;
+
+  return {
+    id: `${kind}-${slugRoute(target.route)}-${Math.random().toString(36).slice(2, 8)}`,
+    kind,
+    severity: 'warning',
+    message,
+    route: target.route,
+    url: target.url,
+    selector: 'document',
+    boundingBox: { x: 0, y: 0, width: 0, height: 0 },
+    metadata: { status, viewport: viewportName, hasStorageState },
   };
 }
 

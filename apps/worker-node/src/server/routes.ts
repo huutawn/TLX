@@ -11,6 +11,9 @@ export function createApiRoutes(context: TlxRuntimeContext): Router {
   router.get('/graph', controller.getGraph);
   router.get('/cache/diff', controller.getCacheDiff);
   router.get('/report/latest', controller.getLatestReport);
+  router.get('/auth/status', controller.getAuthStatus);
+  router.post('/actions/auth/start', controller.startAuth);
+  router.post('/actions/auth/clear', controller.clearAuth);
   router.post('/actions/scan', controller.triggerScan);
 
   return router;
