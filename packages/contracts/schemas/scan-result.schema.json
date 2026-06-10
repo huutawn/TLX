@@ -33,7 +33,7 @@
       "required": ["id", "kind", "severity", "message", "route", "url", "selector", "boundingBox", "metadata"],
       "properties": {
         "id": { "type": "string" },
-        "kind": { "enum": ["overlap", "overflow", "contrast", "crawler", "api"] },
+        "kind": { "enum": ["overlap", "overflow", "contrast", "color_harmony", "crawler", "api", "auth_required", "auth_failed"] },
         "severity": { "enum": ["info", "warning", "error"] },
         "message": { "type": "string" },
         "route": { "type": "string" },
@@ -67,7 +67,66 @@
         },
         "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
         "screenshots": { "type": "array", "items": { "type": "string" } },
-        "warnings": { "type": "array", "items": { "type": "string" } }
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "colorAnalysis": { "$ref": "#/$defs/colorAnalysis" }
+      }
+    },
+    "oklchColor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lightness", "chroma", "hue"],
+      "properties": {
+        "lightness": { "type": "number" },
+        "chroma": { "type": "number", "minimum": 0 },
+        "hue": { "type": ["number", "null"], "minimum": 0, "maximum": 360 }
+      }
+    },
+    "paletteEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "color", "oklch", "weight"],
+      "properties": {
+        "role": { "type": "string" },
+        "color": { "type": "string" },
+        "oklch": { "$ref": "#/$defs/oklchColor" },
+        "weight": { "type": "number", "minimum": 0 }
+      }
+    },
+    "routeColorAnalysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "viewport", "score", "dominantHue", "strongHueFamilies", "hueSpread", "highChromaAreaRatio", "palette"],
+      "properties": {
+        "route": { "type": "string" },
+        "viewport": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "dominantHue": { "type": ["number", "null"], "minimum": 0, "maximum": 360 },
+        "strongHueFamilies": { "type": "integer", "minimum": 0 },
+        "hueSpread": { "type": "number", "minimum": 0, "maximum": 180 },
+        "highChromaAreaRatio": { "type": "number", "minimum": 0 },
+        "palette": { "type": "array", "items": { "$ref": "#/$defs/paletteEntry" } }
+      }
+    },
+    "colorAnalysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "score", "dominantHue", "thresholds", "routes"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "dominantHue": { "type": ["number", "null"], "minimum": 0, "maximum": 360 },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxStrongHueFamilies", "maxRouteHueDrift", "maxHighChromaAreaRatio", "maxHueSpread"],
+          "properties": {
+            "maxStrongHueFamilies": { "type": "integer", "minimum": 1 },
+            "maxRouteHueDrift": { "type": "number", "minimum": 0, "maximum": 180 },
+            "maxHighChromaAreaRatio": { "type": "number", "minimum": 0 },
+            "maxHueSpread": { "type": "number", "minimum": 0, "maximum": 180 }
+          }
+        },
+        "routes": { "type": "array", "items": { "$ref": "#/$defs/routeColorAnalysis" } }
       }
     }
   }

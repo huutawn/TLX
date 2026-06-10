@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 import { Command } from 'commander';
 import uiCommand, { startTlx } from './commands/ui.command';
 

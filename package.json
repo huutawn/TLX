@@ -1,7 +1,23 @@
 {
-  "name": "tlx",
-  "version": "1.0.0",
-  "private": true,
+  "name": "tlx-engine",
+  "version": "0.1.2",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "tlx": "apps/worker-node/dist/index.js"
+  },
+  "files": [
+    "apps/worker-node/dist/index.js",
+    "apps/worker-node/dist/worker.js",
+    "apps/ui/out/**",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  },
   "packageManager": "bun@1.3.14",
   "workspaces": [
     "apps/*",
@@ -15,10 +31,19 @@
     "build:worker": "bun --filter @tlx/worker-node build",
     "build:host": "go build -o dist/tlx ./cmd/tlx",
     "build:ui": "bun --filter @tlx/ui build",
-    "dev:host": "go run ./cmd/tlx",
+    "dev:host": "TLX_RESTART_WORKER=1 go run ./cmd/tlx",
     "typecheck": "bun run --filter './packages/*' typecheck && bun run --filter './apps/*' typecheck",
     "lint": "bun run --filter './apps/*' lint",
-    "check": "bun run typecheck && bun run lint"
+    "check": "bun run typecheck && bun run lint",
+    "prepack": "bun run build:ui && bun --filter @tlx/worker-node build"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "playwright": "^1.60.0",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.26.9"
   },
   "devDependencies": {
     "@types/bun": "^1.3.2",

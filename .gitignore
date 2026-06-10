@@ -21,12 +21,12 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.test.local
 .env.production.local
 .env.local
-
+.tlx
 # caches
 .eslintcache
 .cache
 *.tsbuildinfo
-
+.codex
 # IntelliJ based IDEs
 .idea
 .agents

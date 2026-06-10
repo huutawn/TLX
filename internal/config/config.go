@@ -19,6 +19,7 @@ type Config struct {
 	TargetURL     string
 	StartTarget   bool
 	OpenBrowser   bool
+	RestartWorker bool
 	HealthTimeout time.Duration
 	WorkerCommand string
 }
@@ -62,6 +63,7 @@ func LoadConfig() (Config, error) {
 	config.TargetURL = strings.TrimSpace(os.Getenv("TLX_TARGET_URL"))
 	config.StartTarget = envBool("TLX_START_TARGET", config.StartTarget)
 	config.OpenBrowser = envBool("TLX_OPEN_BROWSER", config.OpenBrowser)
+	config.RestartWorker = envBool("TLX_RESTART_WORKER", config.RestartWorker)
 	config.WorkerCommand = strings.TrimSpace(os.Getenv("TLX_WORKER_COMMAND"))
 
 	return config, nil

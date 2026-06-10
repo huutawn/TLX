@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { analyzeColorHarmony, hueDistance, parseCssColor, rgbToOklch } from '../src/scanner/color-harmony';
 import { analyzeElements, contrastRatio, isOverflowing, isOverlapping, type ScannedElement } from '../src/scanner/ui-analyzer';
 
 describe('UI analyzer', () => {
@@ -16,6 +17,47 @@ describe('UI analyzer', () => {
   test('calculates WCAG contrast ratio', () => {
     expect(contrastRatio('rgb(0, 0, 0)', 'rgb(255, 255, 255)')).toBeGreaterThan(20);
     expect(contrastRatio('rgb(120, 120, 120)', 'rgb(130, 130, 130)')).toBeLessThan(1.2);
+  });
+
+  test('converts CSS colors to OKLCH', () => {
+    expect(parseCssColor('#fff')).toEqual([255, 255, 255]);
+    expect(parseCssColor('rgba(255, 0, 0, 0)')).toBeUndefined();
+    expect(rgbToOklch([255, 255, 255]).lightness).toBeGreaterThan(0.99);
+    expect(rgbToOklch([0, 0, 0]).lightness).toBeLessThan(0.01);
+    expect(rgbToOklch([255, 0, 0]).chroma).toBeGreaterThan(0.2);
+    expect(hueDistance(350, 10)).toBe(20);
+  });
+
+  test('keeps neutral plus one accent palette clean', () => {
+    const result = analyzeColorHarmony([
+      element('#hero', 0, 0, 600, 300, '', 'rgb(15, 23, 42)', 'rgb(248, 250, 252)'),
+      element('#cta', 20, 20, 160, 44, 'Save', 'rgb(255, 255, 255)', 'rgb(37, 99, 235)'),
+    ], {
+      route: '/',
+      viewportName: 'desktop',
+      thresholds: colorThresholds(),
+    });
+
+    expect(result.issue).toBeUndefined();
+    expect(result.analysis.score).toBeGreaterThan(80);
+  });
+
+  test('reports clashing high-chroma hue families', () => {
+    const result = analyzeElements([
+      element('#red', 0, 0, 200, 120, '', 'rgb(255, 255, 255)', 'rgb(255, 0, 0)'),
+      element('#green', 220, 0, 200, 120, '', 'rgb(255, 255, 255)', 'rgb(0, 255, 0)'),
+      element('#blue', 440, 0, 200, 120, '', 'rgb(255, 255, 255)', 'rgb(0, 0, 255)'),
+      element('#yellow', 660, 0, 200, 120, '', 'rgb(0, 0, 0)', 'rgb(255, 255, 0)'),
+    ], {
+      ...baseOptions(),
+      colorHarmony: { enabled: true, thresholds: colorThresholds() },
+      viewportName: 'desktop',
+    });
+
+    const issue = result.issues.find((item) => item.kind === 'color_harmony');
+    expect(issue?.severity).toBe('warning');
+    expect(issue?.metadata.evidence).toBe('oklch-route-palette');
+    expect(result.colorAnalysis?.strongHueFamilies).toBeGreaterThan(3);
   });
 
   test('returns structured issues', () => {
@@ -79,6 +121,15 @@ function baseOptions() {
     viewport: { width: 1000, height: 800 },
     contrastRatio: 4.5,
     issuePrefix: 'test',
+  };
+}
+
+function colorThresholds() {
+  return {
+    maxStrongHueFamilies: 3,
+    maxRouteHueDrift: 85,
+    maxHighChromaAreaRatio: 0.35,
+    maxHueSpread: 150,
   };
 }
 

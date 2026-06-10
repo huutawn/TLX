@@ -19,7 +19,8 @@ func TestDecodeWorkerStatus(t *testing.T) {
       "projectUrl":"http://localhost:3000",
       "framework":"next",
       "rootDir":"/tmp/project",
-      "startedAt":"2026-06-04T00:00:00.000Z"
+	  "startedAt":"2026-06-04T00:00:00.000Z",
+	  "pid":1234
 	}`))
 	if err != nil {
 		t.Fatalf("decodeWorkerStatus() error = %v", err)
@@ -33,6 +34,9 @@ func TestDecodeWorkerStatus(t *testing.T) {
 	}
 	if status.RootDir != "/tmp/project" {
 		t.Fatalf("RootDir = %q", status.RootDir)
+	}
+	if status.PID != 1234 {
+		t.Fatalf("PID = %d, want 1234", status.PID)
 	}
 }
 

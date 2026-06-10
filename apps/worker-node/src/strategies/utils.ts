@@ -177,7 +177,20 @@ export function extractHttpApisFromSource(source: string): string[] {
   collectHttpMatches(source, HTTP_METHOD_CALL_PATTERN, apis);
   collectHttpMatches(source, JQUERY_AJAX_PATTERN, apis);
 
-  return [...apis];
+  return [...apis].filter(isGraphApiEndpoint);
+}
+
+export function isGraphApiEndpoint(endpoint: string): boolean {
+  const pathOnly = endpoint.split(/[?#]/)[0]?.toLowerCase().replace(/\/+$|^https?:\/\/[^/]+/g, '') ?? endpoint;
+  const segments = pathOnly.split('/').filter(Boolean);
+  const lastSegment = segments.at(-1);
+  const previousSegment = segments.at(-2);
+
+  if ((lastSegment === 'refresh' || lastSegment === 'logout') && (previousSegment === 'auth' || previousSegment === 'api')) {
+    return false;
+  }
+
+  return true;
 }
 
 export function extractImportedComponents(source: string, filePath: string): ComponentNode[] {

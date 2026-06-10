@@ -3,8 +3,10 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { chromium, type Browser, type Page } from 'playwright';
-import type { TlxScanIssue } from '@tlx/contracts';
+import type { TlxColorAnalysis, TlxRouteColorAnalysis, TlxScanIssue } from '@tlx/contracts';
 import type { TlxProjectConfig } from '../services/storage.service';
+import { normalizeRoute } from '../strategies/utils';
+import { createCrossRouteColorIssues, summarizeColorAnalysis } from './color-harmony';
 import { analyzeElements, type ScannedElement } from './ui-analyzer';
 
 export interface RouteScanTarget {
@@ -19,6 +21,7 @@ export interface PlaywrightScanOptions {
   config: TlxProjectConfig;
   apiEndpoints: string[];
   discoverRoutes?: boolean;
+  storageStatePath?: string;
 }
 
 export interface PlaywrightScanResult {
@@ -28,6 +31,7 @@ export interface PlaywrightScanResult {
   routesScanned: number;
   warnings: string[];
   artifactErrors: string[];
+  colorAnalysis?: TlxColorAnalysis;
 }
 
 export class PlaywrightScannerRunner {
@@ -46,12 +50,18 @@ export class PlaywrightScannerRunner {
     const warnings: string[] = [];
     const artifactErrors: string[] = [];
     const scannedRoutes = new Set<string>();
+    const scannedTargetUrls = new Map<string, string>();
+    const routeColorAnalyses: TlxRouteColorAnalysis[] = [];
     let elementsScanned = 0;
 
     await fs.mkdir(options.screenshotsDir, { recursive: true });
 
     for (const viewport of options.config.scan.viewports) {
-      const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        ...(options.storageStatePath ? { storageState: options.storageStatePath } : {}),
+      });
+      const page = await context.newPage();
       const consoleErrors: string[] = [];
       page.on('console', (message) => {
         if (message.type() === 'error') consoleErrors.push(message.text());
@@ -65,6 +75,12 @@ export class PlaywrightScannerRunner {
           if (!target) continue;
           const response = await page.goto(target.url, { waitUntil: 'networkidle' });
           scannedRoutes.add(target.route);
+          scannedTargetUrls.set(target.route, target.url);
+          if (response && (response.status() === 401 || response.status() === 403)) {
+            issues.push(createAuthIssue(target, response.status(), viewport.name, Boolean(options.storageStatePath)));
+            continue;
+          }
+
           if (response && response.status() >= 400) {
             issues.push(createSyntheticIssue('crawler', target, `Route returned HTTP ${response.status()}. Fix: verify this page exists, the dev server route is correct, and required data loaders do not fail.`, { status: response.status(), viewport: viewport.name }));
           }
@@ -86,10 +102,16 @@ export class PlaywrightScannerRunner {
             url: target.url,
             viewport,
             contrastRatio: options.config.scan.contrastRatio,
+            colorHarmony: {
+              enabled: options.config.scan.colorHarmony.enabled,
+              thresholds: colorHarmonyThresholds(options.config),
+            },
+            viewportName: viewport.name,
             issuePrefix: `${options.reportId}-${slugRoute(target.route)}-${viewport.name}`,
             pageMetrics: pageScan.pageMetrics,
           });
           elementsScanned += result.elementsScanned;
+          if (result.colorAnalysis) routeColorAnalyses.push(result.colorAnalysis);
           const analyzedIssues = result.issues.map((issue) => ({ ...issue, metadata: { ...issue.metadata, viewport: viewport.name } }));
           issues.push(...analyzedIssues);
 
@@ -116,10 +138,71 @@ export class PlaywrightScannerRunner {
         warnings.push(`[${viewport.name}] ${message}`);
       } finally {
         await page.close();
+        await context.close();
       }
     }
 
-    return { issues, screenshots: [...screenshots], elementsScanned, routesScanned: scannedRoutes.size, warnings, artifactErrors };
+    let colorAnalysis: TlxColorAnalysis | undefined;
+    if (options.config.scan.colorHarmony.enabled) {
+      const thresholds = colorHarmonyThresholds(options.config);
+      colorAnalysis = summarizeColorAnalysis(routeColorAnalyses, thresholds);
+      const crossRouteIssues = createCrossRouteColorIssues(routeColorAnalyses, thresholds).map((issue, index): TlxScanIssue => {
+        const targetUrl = scannedTargetUrls.get(issue.route) ?? targets.find((item) => item.route === issue.route)?.url ?? '';
+        const viewport = options.config.scan.viewports.find((item) => item.name === issue.viewport) ?? options.config.scan.viewports[0] ?? { name: issue.viewport, width: 1280, height: 800 };
+        return {
+          id: `${options.reportId}-${slugRoute(issue.route)}-${viewport.name}-color-harmony-cross-${index}`,
+          kind: 'color_harmony',
+          severity: 'warning',
+          message: issue.message,
+          route: issue.route,
+          url: targetUrl,
+          selector: 'document',
+          boundingBox: { x: 0, y: 0, width: viewport.width, height: viewport.height },
+          metadata: {
+            viewport: viewport.name,
+            viewportWidth: viewport.width,
+            viewportHeight: viewport.height,
+            screenshotWidth: viewport.width,
+            screenshotHeight: viewport.height,
+            ...issue.metadata,
+          },
+        };
+      });
+
+      for (const issue of crossRouteIssues) {
+        issues.push(issue);
+        await captureSyntheticRouteScreenshot(browser, issue, options, screenshots, warnings, artifactErrors);
+      }
+    }
+
+    return { issues, screenshots: [...screenshots], elementsScanned, routesScanned: scannedRoutes.size, warnings, artifactErrors, colorAnalysis };
+  }
+}
+
+function colorHarmonyThresholds(config: TlxProjectConfig) {
+  return {
+    maxStrongHueFamilies: config.scan.colorHarmony.maxStrongHueFamilies,
+    maxRouteHueDrift: config.scan.colorHarmony.maxRouteHueDrift,
+    maxHighChromaAreaRatio: config.scan.colorHarmony.maxHighChromaAreaRatio,
+    maxHueSpread: config.scan.colorHarmony.maxHueSpread,
+  };
+}
+
+async function captureSyntheticRouteScreenshot(browser: Browser, issue: TlxScanIssue, options: PlaywrightScanOptions, screenshots: Set<string>, warnings: string[], artifactErrors: string[]) {
+  if (!issue.url) return;
+  const width = Number(issue.metadata.viewportWidth) || 1280;
+  const height = Number(issue.metadata.viewportHeight) || 800;
+  const context = await browser.newContext({
+    viewport: { width, height },
+    ...(options.storageStatePath ? { storageState: options.storageStatePath } : {}),
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(issue.url, { waitUntil: 'networkidle' });
+    await captureVisualScreenshot(page, { route: issue.route, url: issue.url }, String(issue.metadata.viewport ?? 'default'), [issue], options, screenshots, warnings, artifactErrors);
+  } finally {
+    await page.close();
+    await context.close();
   }
 }
 
@@ -146,16 +229,17 @@ async function captureVisualScreenshot(page: Page, target: RouteScanTarget, view
 }
 
 function isVisualIssue(issue: TlxScanIssue) {
-  return issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast';
+  return issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast' || issue.kind === 'color_harmony';
 }
 
 function uniqueTargets(targets: RouteScanTarget[]): RouteScanTarget[] {
   const seen = new Set<string>();
   const unique: RouteScanTarget[] = [];
   for (const target of targets) {
-    if (!seen.has(target.route)) {
-      unique.push(target);
-      seen.add(target.route);
+    const normalized = normalizeTarget(target);
+    if (!seen.has(normalized.route)) {
+      unique.push(normalized);
+      seen.add(normalized.route);
     }
   }
   return unique;
@@ -168,14 +252,24 @@ async function discoverInternalTargets(page: Page, target: RouteScanTarget, maxP
   for (const href of hrefs.slice(0, maxPages)) {
     const url = new URL(href, target.url);
     if (url.origin !== origin || url.hash || url.pathname.startsWith('/api/')) continue;
-    routes.push({ route: `${url.pathname}${url.search}`, url: `${origin}${url.pathname}${url.search}` });
+    routes.push(createTargetFromUrl(url));
   }
   return uniqueTargets(routes);
 }
 
+function normalizeTarget(target: RouteScanTarget): RouteScanTarget {
+  return createTargetFromUrl(new URL(target.url));
+}
+
+function createTargetFromUrl(url: URL): RouteScanTarget {
+  const routePath = normalizeRoute(url.pathname);
+  const route = `${routePath}${url.search}`;
+  return { route, url: `${url.origin}${route}` };
+}
+
 async function collectElements(page: Page): Promise<{ elements: ScannedElement[]; pageMetrics: { scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number } }> {
   return page.evaluate(() => {
-    const selectors = 'button, a, h1, h2, h3, p, input, label, textarea, select, img, [data-tlx-target], .__tlx-target';
+    const selectors = 'main, section, article, nav, header, footer, aside, form, button, a, h1, h2, h3, p, input, label, textarea, select, img, svg, [data-tlx-target], .__tlx-target';
     const elements = Array.from(document.querySelectorAll<HTMLElement>(selectors))
       .map((el) => {
         const rect = el.getBoundingClientRect();
@@ -188,6 +282,7 @@ async function collectElements(page: Page): Promise<{ elements: ScannedElement[]
           boundingBox: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           color: style.color,
           backgroundColor: findBackgroundColor(el),
+          colorSamples: colorSamples(el, style),
           areaLabel: findAreaLabel(el),
           areaSelector: findAreaSelector(el),
           ancestorSelectors: ancestorSelectors(el),
@@ -318,6 +413,21 @@ async function collectElements(page: Page): Promise<{ elements: ScannedElement[]
       }
       return 'rgb(255, 255, 255)';
     }
+
+    function colorSamples(element: HTMLElement, style: CSSStyleDeclaration): Array<{ role: string; value: string }> {
+      const samples = [
+        { role: 'text', value: style.color },
+        { role: 'background', value: findBackgroundColor(element) },
+      ];
+      if (style.borderTopStyle !== 'none' && parseFloat(style.borderTopWidth || '0') > 0) {
+        samples.push({ role: 'border', value: style.borderTopColor });
+      }
+      const fill = element instanceof SVGElement ? element.getAttribute('fill') || style.fill : '';
+      if (fill && fill !== 'none') {
+        samples.push({ role: 'fill', value: fill });
+      }
+      return samples;
+    }
   });
 }
 
@@ -383,6 +493,25 @@ function createSyntheticIssue(kind: 'crawler' | 'api', target: RouteScanTarget, 
     selector: 'document',
     boundingBox: { x: 0, y: 0, width: 0, height: 0 },
     metadata,
+  };
+}
+
+function createAuthIssue(target: RouteScanTarget, status: number, viewportName: string, hasStorageState: boolean): TlxScanIssue {
+  const kind = hasStorageState ? 'auth_failed' : 'auth_required';
+  const message = hasStorageState
+    ? `Route returned HTTP ${status} with saved auth state. Fix: refresh the TLX auth session or use an account with access to this route.`
+    : `Route returned HTTP ${status} and requires authentication. Fix: run TLX auth login, then rerun the scan.`;
+
+  return {
+    id: `${kind}-${slugRoute(target.route)}-${Math.random().toString(36).slice(2, 8)}`,
+    kind,
+    severity: 'warning',
+    message,
+    route: target.route,
+    url: target.url,
+    selector: 'document',
+    boundingBox: { x: 0, y: 0, width: 0, height: 0 },
+    metadata: { status, viewport: viewportName, hasStorageState },
   };
 }
 

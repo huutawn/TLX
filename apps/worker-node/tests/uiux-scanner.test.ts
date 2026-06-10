@@ -7,6 +7,7 @@ import path from 'path';
 import { chromium } from 'playwright';
 import { analyzeElements, type ScannedElement } from '../src/scanner/ui-analyzer';
 import { PlaywrightScannerRunner } from '../src/scanner/playwright-runner';
+import { EngineService } from '../src/services/engine.service';
 import type { TlxProjectConfig } from '../src/services/storage.service';
 
 const tempRoots: string[] = [];
@@ -146,6 +147,171 @@ describe('UI/UX scanner Playwright fixtures', () => {
     }
   });
 
+  test('discovered routes strip trailing slash before scan', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-trailing-route-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === '/') return new Response('<main><h1>Home</h1><a href="/map/">Map</a></main>', { headers: { 'Content-Type': 'text/html' } });
+        if (url.pathname === '/map') return new Response('<main><h1>Map</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        return new Response('missing', { status: 404 });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'trailing-route',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+        discoverRoutes: true,
+      });
+
+      expect(result.routesScanned).toBe(2);
+      expect(result.issues.some((issue) => issue.kind === 'crawler' && issue.route === '/map' && issue.metadata.status === 404)).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('runner scans every explicit graph target', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-explicit-routes-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === '/settings') return new Response('<main><h1>Settings</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        if (url.pathname === '/about') return new Response('<main><h1>About</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        return new Response('<main><h1>Home</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const port = server.port;
+      if (!port) throw new Error('test server did not start');
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([
+        { route: '/', url: `http://localhost:${port}/` },
+        { route: '/about', url: `http://localhost:${port}/about` },
+        { route: '/settings', url: `http://localhost:${port}/settings` },
+      ], {
+        reportId: 'explicit-routes',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      expect(result.routesScanned).toBe(3);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('first project scan defaults changed scope to all graph routes', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-first-scan-'));
+    tempRoots.push(root);
+    await fs.mkdir(path.join(root, 'app', 'about'), { recursive: true });
+    await fs.writeFile(path.join(root, 'app', 'page.tsx'), 'export default function Page() { return <main />; }', 'utf8');
+    await fs.writeFile(path.join(root, 'app', 'about', 'page.tsx'), 'export default function About() { return <main />; }', 'utf8');
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === '/about') return new Response('<main><h1>About</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        return new Response('<main><h1>Home</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+    const port = server.port;
+    if (!port) throw new Error('test server did not start');
+
+    try {
+      const result = await new EngineService().runProjectScan({
+        projectUrl: `http://localhost:${port}`,
+        project: {
+          framework: 'next',
+          port,
+          rootDir: root,
+          scanGraph: {
+            pages: [
+              { id: 'page-home', type: 'page', name: 'Home', route: '/', filePath: path.join(root, 'app', 'page.tsx'), framework: 'next', components: [], apis: [], links: [] },
+              { id: 'page-about', type: 'page', name: 'About', route: '/about', filePath: path.join(root, 'app', 'about', 'page.tsx'), framework: 'next', components: [], apis: [], links: [] },
+            ],
+            components: [],
+            apis: [],
+            edges: [],
+          },
+        },
+      });
+
+      expect(result.report.scope).toBe('all');
+      expect(result.report.summary.routesScanned).toBeGreaterThan(0);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('401 route reports auth_required without visual noise', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-auth-required-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response('Unauthorized', { status: 401 });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/admin', url: `http://localhost:${server.port}/admin` }], {
+        reportId: 'auth-required',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      expect(result.issues.map((issue) => issue.kind)).toEqual(['auth_required']);
+      expect(result.screenshots).toEqual([]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('403 route with storage state reports auth_failed', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-auth-failed-'));
+    tempRoots.push(root);
+    const storageStatePath = path.join(root, 'state.json');
+    await fs.writeFile(storageStatePath, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response('Forbidden', { status: 403 });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/admin', url: `http://localhost:${server.port}/admin` }], {
+        reportId: 'auth-failed',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+        storageStatePath,
+      });
+
+      expect(result.issues.map((issue) => issue.kind)).toEqual(['auth_failed']);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test('runner attaches a real screenshot to visual issues', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-screenshots-'));
     tempRoots.push(root);
@@ -169,7 +335,7 @@ describe('UI/UX scanner Playwright fixtures', () => {
         apiEndpoints: [],
       });
 
-      const visualIssues = result.issues.filter((issue) => issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast');
+      const visualIssues = result.issues.filter((issue) => issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast' || issue.kind === 'color_harmony');
       expect(visualIssues.length).toBeGreaterThan(0);
       expect(result.artifactErrors).toEqual([]);
       expect(result.screenshots.length).toBe(1);
@@ -178,6 +344,82 @@ describe('UI/UX scanner Playwright fixtures', () => {
         const stat = await fs.stat(path.join(root, issue.screenshotPath ?? ''));
         expect(stat.size).toBeGreaterThan(0);
       }
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('reports OKLCH route palette harmony and keeps scan successful', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-oklch-route-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(`
+          <style>
+            body { margin: 0; background: white; color: black; }
+            main { min-height: 900px; display: grid; grid-template-columns: repeat(4, 1fr); }
+            #red { background: rgb(255, 0, 0); }
+            #green { background: rgb(0, 255, 0); }
+            #blue { background: rgb(0, 0, 255); }
+            #yellow { background: rgb(255, 255, 0); }
+            section { min-height: 240px; color: white; }
+          </style>
+          <main><section id="red"><h1>Red</h1></section><section id="green"><h2>Green</h2></section><section id="blue"><p>Blue</p></section><section id="yellow"><p>Yellow</p></section></main>
+        `, { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'oklch-route',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      const issue = result.issues.find((item) => item.kind === 'color_harmony');
+      expect(issue?.severity).toBe('warning');
+      expect(issue?.screenshotPath).toBeDefined();
+      expect(result.colorAnalysis?.routes.length).toBe(1);
+      expect(result.issues.every((item) => item.severity !== 'error')).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('reports OKLCH cross-route palette drift', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-oklch-cross-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        const color = url.pathname === '/settings' ? 'rgb(255, 0, 0)' : 'rgb(0, 0, 255)';
+        return new Response(`
+          <style>body { margin: 0; background: white; color: black; } main { min-height: 900px; background: ${color}; color: white; padding: 40px; }</style>
+          <main><h1>${url.pathname}</h1><p>Readable</p></main>
+        `, { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([
+        { route: '/', url: `http://localhost:${server.port}/` },
+        { route: '/settings', url: `http://localhost:${server.port}/settings` },
+      ], {
+        reportId: 'oklch-cross',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig({ maxRouteHueDrift: 30 }),
+        apiEndpoints: [],
+      });
+
+      expect(result.colorAnalysis?.routes.length).toBe(2);
+      expect(result.issues.some((issue) => issue.kind === 'color_harmony' && issue.metadata.evidence === 'oklch-cross-route-palette')).toBe(true);
     } finally {
       server.stop(true);
     }
@@ -286,13 +528,22 @@ async function exists(filePath: string) {
   }
 }
 
-function testConfig(): TlxProjectConfig {
+function testConfig(colorHarmony: Partial<TlxProjectConfig['scan']['colorHarmony']> = {}): TlxProjectConfig {
   return {
+    auth: { mode: 'none', profile: 'default' },
     scan: {
       defaultScope: 'all',
       ignoredPaths: [],
       viewports: [{ name: 'desktop', width: 1000, height: 700 }],
       contrastRatio: 4.5,
+      colorHarmony: {
+        enabled: true,
+        maxStrongHueFamilies: 3,
+        maxRouteHueDrift: 85,
+        maxHighChromaAreaRatio: 0.35,
+        maxHueSpread: 150,
+        ...colorHarmony,
+      },
       crawler: { enabled: false, maxDepth: 1, maxPages: 10 },
       api: { enabled: false, unsafeMethods: false },
     },

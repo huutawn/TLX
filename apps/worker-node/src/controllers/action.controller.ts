@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import type { TlxCacheDiffResponse, TlxGraphResponse, TlxProjectResponse, TlxScanActionRequest, TlxScanReport, TlxScanResultResponse, TlxStatusResponse } from '@tlx/contracts';
+import type { TlxAuthActionResponse, TlxAuthStartRequest, TlxAuthStatusResponse, TlxCacheDiffResponse, TlxGraphResponse, TlxProjectResponse, TlxScanActionRequest, TlxScanReport, TlxScanResultResponse, TlxStatusResponse } from '@tlx/contracts';
 import { EngineService } from '../services/engine.service';
 import type { TlxRuntimeContext } from '../services/runtime-context.service';
 
@@ -18,6 +18,7 @@ export class ActionController {
         framework: this.context.project.framework,
         rootDir: this.context.project.rootDir,
         startedAt: this.context.startedAt,
+        pid: process.pid,
       };
 
       res.json(response);
@@ -59,6 +60,34 @@ export class ActionController {
       res.json(response);
     } catch {
       res.status(500).json({ error: 'Failed to get latest report' });
+    }
+  };
+
+  getAuthStatus = async (_req: Request, res: Response) => {
+    try {
+      const response: TlxAuthStatusResponse = await this.engineService.getAuthStatus(this.context.project);
+      res.json(response);
+    } catch {
+      res.status(500).json({ error: 'Failed to get auth status' });
+    }
+  };
+
+  clearAuth = async (_req: Request, res: Response) => {
+    try {
+      const response: TlxAuthActionResponse = await this.engineService.clearAuth(this.context.project);
+      res.json(response);
+    } catch {
+      res.status(500).json({ error: 'Failed to clear auth state' });
+    }
+  };
+
+  startAuth = async (req: Request, res: Response) => {
+    try {
+      const body = (req.body ?? {}) as TlxAuthStartRequest;
+      const response: TlxAuthActionResponse = await this.engineService.startManualAuth(this.context.project, this.context.projectUrl, body);
+      res.json(response);
+    } catch {
+      res.status(500).json({ error: 'Failed to start auth login' });
     }
   };
 

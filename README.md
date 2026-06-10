@@ -123,6 +123,9 @@ scan.crawler.maxPages: 25
 scan.api.enabled: true
 scan.api.unsafeMethods: false
 scan.ignoredPaths: .cache,tmp,coverage
+auth.mode: manual
+auth.profile: default
+auth.loginUrl: http://localhost:3000/login
 ```
 
 ## Local API
@@ -135,6 +138,9 @@ GET  /api/project
 GET  /api/graph
 GET  /api/cache/diff
 GET  /api/report/latest
+GET  /api/auth/status
+POST /api/actions/auth/start
+POST /api/actions/auth/clear
 POST /api/actions/scan
 ```
 
@@ -155,6 +161,14 @@ Scan all pages:
 ```json
 { "scope": "all" }
 ```
+
+Start manual auth capture:
+
+```json
+{ "profile": "default", "loginUrl": "http://localhost:3000/login", "timeoutMs": 120000 }
+```
+
+TLX opens a headed Playwright browser. Log in, close the page, then scans can reuse `.tlx/auth/default.json`. Routes returning `401` or `403` are reported as `auth_required` or `auth_failed` instead of generic crawler failures.
 
 ## Verification
 

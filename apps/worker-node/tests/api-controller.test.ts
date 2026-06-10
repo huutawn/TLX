@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ActionController } from '../src/controllers/action.controller';
+import { resolveDashboardRoutePath } from '../src/server';
 import { ProjectStorageService } from '../src/services/storage.service';
 import type { TlxRuntimeContext } from '../src/services/runtime-context.service';
 import type { ScanGraph } from '../src/strategies/types';
@@ -41,6 +42,47 @@ describe('ActionController Phase 2 endpoints', () => {
     expect(body.issues).toEqual([]);
   });
 
+  test('GET auth status returns empty manual-session state by default', async () => {
+    const context = await createContext();
+    const res = createResponse();
+
+    await new ActionController(context).getAuthStatus({} as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ mode: 'none', profile: 'default', authenticated: false, origins: [] });
+  });
+
+  test('GET auth status detects saved storage state as manual auth', async () => {
+    const context = await createContext();
+    const storage = new ProjectStorageService(context.project.rootDir);
+    const config = await storage.readConfig();
+    const statePath = storage.resolveAuthStorageStatePath(config);
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await fs.writeFile(statePath, JSON.stringify({ cookies: [], origins: [{ origin: context.projectUrl, localStorage: [] }] }), 'utf8');
+    const res = createResponse();
+
+    await new ActionController(context).getAuthStatus({} as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ mode: 'manual', profile: 'default', authenticated: true, origins: [context.projectUrl] });
+  });
+
+  test('POST auth clear removes saved storage state', async () => {
+    const context = await createContext();
+    const storage = new ProjectStorageService(context.project.rootDir);
+    const config = await storage.readConfig();
+    const statePath = storage.resolveAuthStorageStatePath(config);
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await fs.writeFile(statePath, JSON.stringify({ cookies: [], origins: [{ origin: context.projectUrl, localStorage: [] }] }), 'utf8');
+    const res = createResponse();
+
+    await new ActionController(context).clearAuth({} as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ success: true, authenticated: false });
+    await expect(fs.stat(statePath)).rejects.toThrow();
+  });
+
   test('POST scan defaults to changed scope and skips browser when nothing changed', async () => {
     const context = await createContext();
     const storage = new ProjectStorageService(context.project.rootDir);
@@ -55,6 +97,13 @@ describe('ActionController Phase 2 endpoints', () => {
     expect(body.report.scope).toBe('changed');
     expect(body.report.summary.routesScanned).toBe(0);
     expect(body.totalElementsScanned).toBe(0);
+  });
+
+  test('static dashboard route resolver keeps canonical paths slashless', () => {
+    expect(resolveDashboardRoutePath('/map')).toEqual({ fileName: 'map.html' });
+    expect(resolveDashboardRoutePath('/map/')).toEqual({ redirectTo: '/map' });
+    expect(resolveDashboardRoutePath('/bugs')).toEqual({ fileName: 'bugs.html' });
+    expect(resolveDashboardRoutePath('/bugs/')).toEqual({ redirectTo: '/bugs' });
   });
 });
 

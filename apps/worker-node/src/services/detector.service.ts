@@ -10,7 +10,7 @@ import type {
   ProjectMetadata,
   ScanGraph,
 } from '../strategies/types';
-import { createGraphId, readJsonFile, walkFiles } from '../strategies/utils';
+import { createGraphId, isGraphApiEndpoint, readJsonFile, walkFiles } from '../strategies/utils';
 
 const DEFAULT_PORTS: Record<string, number> = {
   next: 3000,
@@ -104,7 +104,7 @@ export class DetectorService {
 
   private createScanGraph(pages: PageNode[], apiEndpoints: string[] = []): ScanGraph {
     const components = new Map<string, ComponentNode>();
-    const apis = new Set(apiEndpoints);
+    const apis = new Set(apiEndpoints.filter(isGraphApiEndpoint));
     const edges = new Map<string, GraphEdge>();
     const pageByRoute = new Map(pages.map((page) => [page.route, page]));
 
@@ -125,7 +125,7 @@ export class DetectorService {
         }
       }
 
-      for (const api of page.apis) {
+      for (const api of page.apis.filter(isGraphApiEndpoint)) {
         apis.add(api);
         const apiId = createGraphId('api', api);
         const edge: GraphEdge = {

@@ -8,6 +8,7 @@ export interface TlxStatusResponse {
   framework: string;
   rootDir: string;
   startedAt: string;
+  pid: number;
 }
 
 export interface TlxProjectResponse {
@@ -66,7 +67,7 @@ export interface TlxBoundingBox {
   height: number;
 }
 
-export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'crawler' | 'api';
+export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'color_harmony' | 'crawler' | 'api' | 'auth_required' | 'auth_failed';
 export type TlxScanIssueSeverity = 'info' | 'warning' | 'error';
 
 export interface TlxScanIssue {
@@ -89,6 +90,45 @@ export interface TlxScanReportSummary {
   screenshotsCaptured: number;
 }
 
+export interface TlxOklchColor {
+  lightness: number;
+  chroma: number;
+  hue: number | null;
+}
+
+export interface TlxColorPaletteEntry {
+  role: string;
+  color: string;
+  oklch: TlxOklchColor;
+  weight: number;
+}
+
+export interface TlxRouteColorAnalysis {
+  route: string;
+  viewport: string;
+  score: number;
+  dominantHue: number | null;
+  strongHueFamilies: number;
+  hueSpread: number;
+  highChromaAreaRatio: number;
+  palette: TlxColorPaletteEntry[];
+}
+
+export interface TlxColorAnalysisThresholds {
+  maxStrongHueFamilies: number;
+  maxRouteHueDrift: number;
+  maxHighChromaAreaRatio: number;
+  maxHueSpread: number;
+}
+
+export interface TlxColorAnalysis {
+  enabled: boolean;
+  score: number;
+  dominantHue: number | null;
+  thresholds: TlxColorAnalysisThresholds;
+  routes: TlxRouteColorAnalysis[];
+}
+
 export interface TlxScanReport {
   id: string;
   scope: TlxScanScope;
@@ -99,6 +139,7 @@ export interface TlxScanReport {
   issues: TlxScanIssue[];
   screenshots: string[];
   warnings: string[];
+  colorAnalysis?: TlxColorAnalysis;
 }
 
 export interface TlxCacheEntry {
@@ -118,6 +159,26 @@ export interface TlxCacheDiffResponse {
 export interface TlxScanActionRequest {
   scope?: TlxScanScope;
   route?: string;
+}
+
+export interface TlxAuthStartRequest {
+  profile?: string;
+  loginUrl?: string;
+  timeoutMs?: number;
+}
+
+export interface TlxAuthStatusResponse {
+  mode: 'none' | 'manual';
+  profile: string;
+  authenticated: boolean;
+  storageStatePath?: string;
+  savedAt?: string;
+  origins: string[];
+}
+
+export interface TlxAuthActionResponse extends TlxAuthStatusResponse {
+  success: boolean;
+  message?: string;
 }
 
 export interface TlxScanResultResponse {

@@ -1,4 +1,5 @@
-import type { TlxBoundingBox, TlxScanIssue } from '@tlx/contracts';
+import type { TlxBoundingBox, TlxColorAnalysisThresholds, TlxRouteColorAnalysis, TlxScanIssue } from '@tlx/contracts';
+import { analyzeColorHarmony, parseCssColor } from './color-harmony';
 
 export interface ScannedElement {
   selector: string;
@@ -7,6 +8,7 @@ export interface ScannedElement {
   boundingBox: TlxBoundingBox;
   color: string;
   backgroundColor: string;
+  colorSamples?: Array<{ role: string; value: string }>;
   areaLabel?: string;
   areaSelector?: string;
   ancestorSelectors?: string[];
@@ -19,6 +21,11 @@ export interface AnalyzeOptions {
   url: string;
   viewport: { width: number; height: number };
   contrastRatio: number;
+  colorHarmony?: {
+    enabled: boolean;
+    thresholds: TlxColorAnalysisThresholds;
+  };
+  viewportName?: string;
   issuePrefix: string;
   pageMetrics?: { scrollWidth: number; clientWidth: number; scrollHeight?: number; clientHeight?: number };
 }
@@ -26,6 +33,7 @@ export interface AnalyzeOptions {
 export interface AnalyzeResult {
   issues: TlxScanIssue[];
   elementsScanned: number;
+  colorAnalysis?: TlxRouteColorAnalysis;
 }
 
 export function analyzeElements(elements: ScannedElement[], options: AnalyzeOptions): AnalyzeResult {
@@ -83,7 +91,24 @@ export function analyzeElements(elements: ScannedElement[], options: AnalyzeOpti
     }
   }
 
-  return { issues, elementsScanned: elements.length };
+  let colorAnalysis: TlxRouteColorAnalysis | undefined;
+  if (options.colorHarmony?.enabled) {
+    const result = analyzeColorHarmony(elements, {
+      route: options.route,
+      viewportName: options.viewportName ?? 'default',
+      thresholds: options.colorHarmony.thresholds,
+    });
+    colorAnalysis = result.analysis;
+    if (result.issue) {
+      issues.push(createIssue('color_harmony', issues.length, {
+        ...createDocumentElement(),
+        selector: result.issue.selector,
+        boundingBox: result.issue.boundingBox,
+      }, result.issue.boundingBox, options, result.issue.message, result.issue.metadata));
+    }
+  }
+
+  return { issues, elementsScanned: elements.length, colorAnalysis };
 }
 
 export function isOverlapping(left: TlxBoundingBox, right: TlxBoundingBox): boolean {
@@ -114,7 +139,7 @@ function createIssue(kind: TlxScanIssue['kind'], index: number, element: Scanned
   return {
     id: `${options.issuePrefix}-${kind}-${index}`,
     kind,
-    severity: kind === 'contrast' ? 'warning' : 'error',
+    severity: kind === 'contrast' || kind === 'color_harmony' ? 'warning' : 'error',
     message,
     route: options.route,
     url: options.url,
@@ -186,20 +211,6 @@ function contains(outer: TlxBoundingBox, inner: TlxBoundingBox) {
 
 function area(box: TlxBoundingBox) {
   return box.width * box.height;
-}
-
-function parseCssColor(value: string): [number, number, number] | undefined {
-  const trimmed = value.trim().toLowerCase();
-  const rgb = trimmed.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (rgb?.[1] && rgb[2] && rgb[3]) {
-    return [Number.parseInt(rgb[1], 10), Number.parseInt(rgb[2], 10), Number.parseInt(rgb[3], 10)];
-  }
-
-  const hex = trimmed.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)?.[1];
-  if (!hex) return undefined;
-
-  const expanded = hex.length === 3 ? hex.split('').map((char) => `${char}${char}`).join('') : hex;
-  return [Number.parseInt(expanded.slice(0, 2), 16), Number.parseInt(expanded.slice(2, 4), 16), Number.parseInt(expanded.slice(4, 6), 16)];
 }
 
 function relativeLuminance([red, green, blue]: [number, number, number]) {
