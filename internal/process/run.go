@@ -29,14 +29,20 @@ func Run(ctx context.Context, cfg config.Config) error {
 			return errPortBusy(cfg.DashboardPort)
 		}
 
-		output.PrintReadySummary(cfg, status, true)
-		if cfg.OpenBrowser {
-			if err := browser.Open(cfg.DashboardURL()); err != nil {
-				fmt.Fprintln(os.Stderr, "[TLX]", err)
+		if cfg.RestartWorker {
+			if err := shutdownExternalWorker(ctx, cfg, status); err != nil {
+				return err
 			}
-		}
+		} else {
+			output.PrintReadySummary(cfg, status, true)
+			if cfg.OpenBrowser {
+				if err := browser.Open(cfg.DashboardURL()); err != nil {
+					fmt.Fprintln(os.Stderr, "[TLX]", err)
+				}
+			}
 
-		return nil
+			return nil
+		}
 	}
 
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
@@ -82,6 +88,52 @@ func Run(ctx context.Context, cfg config.Config) error {
 
 		return nil
 	}
+}
+
+func shutdownExternalWorker(ctx context.Context, cfg config.Config, status health.WorkerStatus) error {
+	if status.PID <= 0 {
+		return fmt.Errorf("worker is already running on port %d but does not expose a PID; stop it manually once, or use TLX_PORT to choose another dashboard port", cfg.DashboardPort)
+	}
+
+	process, err := os.FindProcess(status.PID)
+	if err != nil {
+		return fmt.Errorf("failed to find worker process %d: %w", status.PID, err)
+	}
+
+	fmt.Fprintln(os.Stdout, "[TLX] Restarting existing worker...")
+	_ = process.Signal(os.Interrupt)
+
+	deadline := time.NewTimer(workerShutdownTimeout)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			_ = process.Kill()
+			return waitForPortClose(cfg.DashboardPort, 3*time.Second)
+		case <-ticker.C:
+			if !health.IsPortOpen(cfg.DashboardPort) {
+				return nil
+			}
+		}
+	}
+}
+
+func waitForPortClose(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !health.IsPortOpen(port) {
+			return nil
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	return fmt.Errorf("worker port %d did not close after restart signal", port)
 }
 
 func shutdownWorker(cmd *exec.Cmd, cancel context.CancelFunc, exited <-chan error) {

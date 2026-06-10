@@ -10,7 +10,7 @@ import { CommandButton, CopyButton, KeyValue, MetricCard, Panel, StatusPill } fr
 const SCAN_SUITES = [
   { suite: "AABB overlap", target: "selected routes", status: "ready" },
   { suite: "Overflow", target: "selected routes", status: "queued" },
-  { suite: "WCAG contrast", target: "all changed", status: "planned" },
+  { suite: "WCAG + OKLCH", target: "all changed", status: "ready" },
   { suite: "API fuzzing", target: "internal endpoints", status: "planned" },
 ];
 
@@ -40,7 +40,7 @@ export function TestsView() {
           </select>
           <label className="field-label mt-3">Scanner</label>
           <select className="field" value="aabb-overflow-wcag" disabled>
-            <option value="aabb-overflow-wcag">AABB + overflow + WCAG</option>
+            <option value="aabb-overflow-wcag">AABB + overflow + WCAG + OKLCH</option>
           </select>
           <button className="primary-btn mt-4" disabled={scanning} onClick={() => void runScan("route")}>
             <Play size={16} />
@@ -129,6 +129,7 @@ function createRunnerLog(report: ReturnType<typeof useDashboardData>["report"], 
     `routes: ${report.summary.routesScanned}`,
     `elements: ${report.summary.elementsScanned}`,
     `issues: ${report.summary.issuesFound}`,
+    `color score: ${report.colorAnalysis?.score ?? "n/a"}`,
     ...report.warnings.map((warning) => `warning: ${warning}`),
   ].join("\n");
 }

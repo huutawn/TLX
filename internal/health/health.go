@@ -19,6 +19,7 @@ type WorkerStatus struct {
 	Framework     string `json:"framework"`
 	RootDir       string `json:"rootDir"`
 	StartedAt     string `json:"startedAt"`
+	PID           int    `json:"pid"`
 }
 
 func WaitForWorker(ctx context.Context, port int, timeout time.Duration, exited chan error) (WorkerStatus, error) {

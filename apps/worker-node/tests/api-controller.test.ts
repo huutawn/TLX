@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ActionController } from '../src/controllers/action.controller';
+import { resolveDashboardRoutePath } from '../src/server';
 import { ProjectStorageService } from '../src/services/storage.service';
 import type { TlxRuntimeContext } from '../src/services/runtime-context.service';
 import type { ScanGraph } from '../src/strategies/types';
@@ -96,6 +97,13 @@ describe('ActionController Phase 2 endpoints', () => {
     expect(body.report.scope).toBe('changed');
     expect(body.report.summary.routesScanned).toBe(0);
     expect(body.totalElementsScanned).toBe(0);
+  });
+
+  test('static dashboard route resolver keeps canonical paths slashless', () => {
+    expect(resolveDashboardRoutePath('/map')).toEqual({ fileName: 'map.html' });
+    expect(resolveDashboardRoutePath('/map/')).toEqual({ redirectTo: '/map' });
+    expect(resolveDashboardRoutePath('/bugs')).toEqual({ fileName: 'bugs.html' });
+    expect(resolveDashboardRoutePath('/bugs/')).toEqual({ redirectTo: '/bugs' });
   });
 });
 

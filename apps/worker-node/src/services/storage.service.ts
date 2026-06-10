@@ -22,6 +22,13 @@ export interface TlxProjectConfig {
     ignoredPaths: string[];
     viewports: TlxScanViewport[];
     contrastRatio: number;
+    colorHarmony: {
+      enabled: boolean;
+      maxStrongHueFamilies: number;
+      maxRouteHueDrift: number;
+      maxHighChromaAreaRatio: number;
+      maxHueSpread: number;
+    };
     crawler: {
       enabled: boolean;
       maxDepth: number;
@@ -59,6 +66,13 @@ export const DEFAULT_TLX_CONFIG: TlxProjectConfig = {
     ignoredPaths: DEFAULT_IGNORES,
     viewports: [{ name: 'desktop', width: 1280, height: 800 }],
     contrastRatio: 4.5,
+    colorHarmony: {
+      enabled: true,
+      maxStrongHueFamilies: 3,
+      maxRouteHueDrift: 85,
+      maxHighChromaAreaRatio: 0.35,
+      maxHueSpread: 150,
+    },
     crawler: { enabled: true, maxDepth: 2, maxPages: 25 },
     api: { enabled: true, unsafeMethods: false },
   },
@@ -334,6 +348,21 @@ function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value
     case 'contrastRatio':
       scan.contrastRatio = Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.contrastRatio;
       break;
+    case 'scan.colorHarmony.enabled':
+      scan.colorHarmony = { ...(scan.colorHarmony ?? DEFAULT_TLX_CONFIG.scan.colorHarmony), enabled: parseBoolean(value) };
+      break;
+    case 'scan.colorHarmony.maxStrongHueFamilies':
+      scan.colorHarmony = { ...(scan.colorHarmony ?? DEFAULT_TLX_CONFIG.scan.colorHarmony), maxStrongHueFamilies: Number.parseInt(value, 10) || DEFAULT_TLX_CONFIG.scan.colorHarmony.maxStrongHueFamilies };
+      break;
+    case 'scan.colorHarmony.maxRouteHueDrift':
+      scan.colorHarmony = { ...(scan.colorHarmony ?? DEFAULT_TLX_CONFIG.scan.colorHarmony), maxRouteHueDrift: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.colorHarmony.maxRouteHueDrift };
+      break;
+    case 'scan.colorHarmony.maxHighChromaAreaRatio':
+      scan.colorHarmony = { ...(scan.colorHarmony ?? DEFAULT_TLX_CONFIG.scan.colorHarmony), maxHighChromaAreaRatio: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.colorHarmony.maxHighChromaAreaRatio };
+      break;
+    case 'scan.colorHarmony.maxHueSpread':
+      scan.colorHarmony = { ...(scan.colorHarmony ?? DEFAULT_TLX_CONFIG.scan.colorHarmony), maxHueSpread: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.colorHarmony.maxHueSpread };
+      break;
     case 'scan.crawler.enabled':
       scan.crawler = { ...(scan.crawler ?? DEFAULT_TLX_CONFIG.scan.crawler), enabled: parseBoolean(value) };
       break;
@@ -361,6 +390,7 @@ function mergeConfig(target: TlxProjectConfig, patch: Partial<TlxProjectConfig>)
   target.scan = {
     ...target.scan,
     ...patch.scan,
+    colorHarmony: { ...target.scan.colorHarmony, ...patch.scan.colorHarmony },
     crawler: { ...target.scan.crawler, ...patch.scan.crawler },
     api: { ...target.scan.api, ...patch.scan.api },
   };

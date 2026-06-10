@@ -7,6 +7,7 @@ import type { ProjectMetadata } from './detector.service';
 import { DiffService } from './diff.service';
 import { ProjectStorageService, type TlxProjectConfig } from './storage.service';
 import { PlaywrightScannerRunner, type RouteScanTarget } from '../scanner/playwright-runner';
+import { normalizeRoute } from '../strategies/utils';
 
 interface RunProjectScanOptions extends TlxScanActionRequest {
   project: ProjectMetadata;
@@ -131,6 +132,7 @@ export class EngineService {
       issues: scan.issues,
       screenshots: scan.screenshots,
       warnings,
+      colorAnalysis: scan.colorAnalysis,
     };
 
     const reportWarnings = await storage.writeLatestReport(report);
@@ -163,8 +165,14 @@ function normalizeScope(scope: string): TlxScanScope {
 
 function createTargets(routes: string[], projectUrl: string): RouteScanTarget[] {
   const base = projectUrl.endsWith('/') ? projectUrl.slice(0, -1) : projectUrl;
-  const uniqueRoutes = routes.length > 0 ? [...new Set(routes)] : ['/'];
-  return uniqueRoutes.map((route) => ({ route, url: `${base}${route.startsWith('/') ? route : `/${route}`}` }));
+  const uniqueRoutes = routes.length > 0 ? [...new Set(routes.map((route) => normalizeScanRoute(route)))] : ['/'];
+  return uniqueRoutes.map((route) => ({ route, url: `${base}${route}` }));
+}
+
+function normalizeScanRoute(route: string): string {
+  const [pathPart = '/', queryPart] = route.split('?');
+  const normalizedPath = normalizeRoute(pathPart);
+  return queryPart ? `${normalizedPath}?${queryPart}` : normalizedPath;
 }
 
 function createReportId() {

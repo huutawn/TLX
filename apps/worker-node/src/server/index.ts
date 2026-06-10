@@ -5,6 +5,26 @@ import path from 'path';
 import { createApiRoutes } from './routes';
 import type { TlxRuntimeContext } from '../services/runtime-context.service';
 
+const DASHBOARD_ROUTES = new Map([
+  ['/', 'index.html'],
+  ['/overview', 'overview.html'],
+  ['/map', 'map.html'],
+  ['/tests', 'tests.html'],
+  ['/bugs', 'bugs.html'],
+]);
+
+export function resolveDashboardRoutePath(requestPath: string): { fileName?: string; redirectTo?: string } {
+  const fileName = DASHBOARD_ROUTES.get(requestPath);
+  if (fileName) return { fileName };
+
+  if (requestPath !== '/' && requestPath.endsWith('/')) {
+    const cleanPath = requestPath.replace(/\/$/, '') || '/';
+    if (DASHBOARD_ROUTES.has(cleanPath)) return { redirectTo: cleanPath };
+  }
+
+  return {};
+}
+
 export function createServer(context: TlxRuntimeContext): express.Express {
   const app = express();
 
@@ -15,9 +35,46 @@ export function createServer(context: TlxRuntimeContext): express.Express {
 
   const uiOutDir = resolveUiOutDir();
   if (uiOutDir) {
-    app.use(express.static(uiOutDir));
-    app.get('/', (_req, res) => {
-      res.sendFile(path.join(uiOutDir, 'index.html'));
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        next();
+        return;
+      }
+
+      const redirectTo = resolveDashboardRoutePath(req.path).redirectTo;
+      if (!redirectTo) {
+        next();
+        return;
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.redirect(302, redirectTo);
+    });
+
+    for (const [route, fileName] of DASHBOARD_ROUTES) {
+      app.get(route, (_req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.sendFile(path.join(uiOutDir, fileName));
+      });
+    }
+
+    app.use(express.static(uiOutDir, { redirect: false }));
+
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        next();
+        return;
+      }
+
+      const cleanPath = req.path.replace(/\/$/, '') || '/';
+      const fileName = resolveDashboardRoutePath(cleanPath).fileName;
+      if (!fileName) {
+        next();
+        return;
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.sendFile(path.join(uiOutDir, fileName));
     });
 
     return app;

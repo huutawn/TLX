@@ -47,8 +47,14 @@ export function issueDetails(issue: TlxScanIssue) {
     otherSelector: issue.metadata.otherSelector,
     evidence: issue.metadata.evidence,
     fixHint: issue.metadata.fixHint,
+    score: issue.metadata.score,
+    dominantHue: issue.metadata.dominantHue,
+    globalDominantHue: issue.metadata.globalDominantHue,
+    hueSpread: issue.metadata.hueSpread,
+    highChromaAreaRatio: issue.metadata.highChromaAreaRatio,
+    strongHueFamilies: issue.metadata.strongHueFamilies,
+    palette: issue.metadata.palette,
     boundingBox: issue.boundingBox,
     message: issue.message,
   };
 }
-

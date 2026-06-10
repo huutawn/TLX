@@ -147,6 +147,37 @@ describe('UI/UX scanner Playwright fixtures', () => {
     }
   });
 
+  test('discovered routes strip trailing slash before scan', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-trailing-route-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === '/') return new Response('<main><h1>Home</h1><a href="/map/">Map</a></main>', { headers: { 'Content-Type': 'text/html' } });
+        if (url.pathname === '/map') return new Response('<main><h1>Map</h1><p>Readable</p></main>', { headers: { 'Content-Type': 'text/html' } });
+        return new Response('missing', { status: 404 });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'trailing-route',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+        discoverRoutes: true,
+      });
+
+      expect(result.routesScanned).toBe(2);
+      expect(result.issues.some((issue) => issue.kind === 'crawler' && issue.route === '/map' && issue.metadata.status === 404)).toBe(false);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test('runner scans every explicit graph target', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-explicit-routes-'));
     tempRoots.push(root);
@@ -304,7 +335,7 @@ describe('UI/UX scanner Playwright fixtures', () => {
         apiEndpoints: [],
       });
 
-      const visualIssues = result.issues.filter((issue) => issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast');
+      const visualIssues = result.issues.filter((issue) => issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast' || issue.kind === 'color_harmony');
       expect(visualIssues.length).toBeGreaterThan(0);
       expect(result.artifactErrors).toEqual([]);
       expect(result.screenshots.length).toBe(1);
@@ -313,6 +344,82 @@ describe('UI/UX scanner Playwright fixtures', () => {
         const stat = await fs.stat(path.join(root, issue.screenshotPath ?? ''));
         expect(stat.size).toBeGreaterThan(0);
       }
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('reports OKLCH route palette harmony and keeps scan successful', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-oklch-route-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(`
+          <style>
+            body { margin: 0; background: white; color: black; }
+            main { min-height: 900px; display: grid; grid-template-columns: repeat(4, 1fr); }
+            #red { background: rgb(255, 0, 0); }
+            #green { background: rgb(0, 255, 0); }
+            #blue { background: rgb(0, 0, 255); }
+            #yellow { background: rgb(255, 255, 0); }
+            section { min-height: 240px; color: white; }
+          </style>
+          <main><section id="red"><h1>Red</h1></section><section id="green"><h2>Green</h2></section><section id="blue"><p>Blue</p></section><section id="yellow"><p>Yellow</p></section></main>
+        `, { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'oklch-route',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      const issue = result.issues.find((item) => item.kind === 'color_harmony');
+      expect(issue?.severity).toBe('warning');
+      expect(issue?.screenshotPath).toBeDefined();
+      expect(result.colorAnalysis?.routes.length).toBe(1);
+      expect(result.issues.every((item) => item.severity !== 'error')).toBe(true);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('reports OKLCH cross-route palette drift', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-oklch-cross-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        const color = url.pathname === '/settings' ? 'rgb(255, 0, 0)' : 'rgb(0, 0, 255)';
+        return new Response(`
+          <style>body { margin: 0; background: white; color: black; } main { min-height: 900px; background: ${color}; color: white; padding: 40px; }</style>
+          <main><h1>${url.pathname}</h1><p>Readable</p></main>
+        `, { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([
+        { route: '/', url: `http://localhost:${server.port}/` },
+        { route: '/settings', url: `http://localhost:${server.port}/settings` },
+      ], {
+        reportId: 'oklch-cross',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig({ maxRouteHueDrift: 30 }),
+        apiEndpoints: [],
+      });
+
+      expect(result.colorAnalysis?.routes.length).toBe(2);
+      expect(result.issues.some((issue) => issue.kind === 'color_harmony' && issue.metadata.evidence === 'oklch-cross-route-palette')).toBe(true);
     } finally {
       server.stop(true);
     }
@@ -421,7 +528,7 @@ async function exists(filePath: string) {
   }
 }
 
-function testConfig(): TlxProjectConfig {
+function testConfig(colorHarmony: Partial<TlxProjectConfig['scan']['colorHarmony']> = {}): TlxProjectConfig {
   return {
     auth: { mode: 'none', profile: 'default' },
     scan: {
@@ -429,6 +536,14 @@ function testConfig(): TlxProjectConfig {
       ignoredPaths: [],
       viewports: [{ name: 'desktop', width: 1000, height: 700 }],
       contrastRatio: 4.5,
+      colorHarmony: {
+        enabled: true,
+        maxStrongHueFamilies: 3,
+        maxRouteHueDrift: 85,
+        maxHighChromaAreaRatio: 0.35,
+        maxHueSpread: 150,
+        ...colorHarmony,
+      },
       crawler: { enabled: false, maxDepth: 1, maxPages: 10 },
       api: { enabled: false, unsafeMethods: false },
     },

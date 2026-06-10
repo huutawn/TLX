@@ -12,6 +12,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("TLX_TARGET_URL", "")
 	t.Setenv("TLX_START_TARGET", "")
 	t.Setenv("TLX_OPEN_BROWSER", "")
+	t.Setenv("TLX_RESTART_WORKER", "")
 	t.Setenv("TLX_WORKER_COMMAND", "")
 
 	projectPath := t.TempDir()
@@ -37,6 +38,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if !cfg.OpenBrowser {
 		t.Fatal("OpenBrowser = false, want true")
 	}
+	if cfg.RestartWorker {
+		t.Fatal("RestartWorker = true, want false")
+	}
 	if cfg.HealthTimeout != defaultHealthTimeout {
 		t.Fatalf("HealthTimeout = %s, want %s", cfg.HealthTimeout, defaultHealthTimeout)
 	}
@@ -55,6 +59,7 @@ func TestLoadConfigFromEnvironment(t *testing.T) {
 	t.Setenv("TLX_TARGET_URL", "http://localhost:3001")
 	t.Setenv("TLX_START_TARGET", "false")
 	t.Setenv("TLX_OPEN_BROWSER", "0")
+	t.Setenv("TLX_RESTART_WORKER", "1")
 	t.Setenv("TLX_WORKER_COMMAND", "node custom-worker.js")
 
 	cfg, err := LoadConfig()
@@ -76,6 +81,9 @@ func TestLoadConfigFromEnvironment(t *testing.T) {
 	}
 	if cfg.OpenBrowser {
 		t.Fatal("OpenBrowser = true, want false")
+	}
+	if !cfg.RestartWorker {
+		t.Fatal("RestartWorker = false, want true")
 	}
 	if cfg.HealthTimeout != 30*time.Second {
 		t.Fatalf("HealthTimeout = %s, want 30s", cfg.HealthTimeout)

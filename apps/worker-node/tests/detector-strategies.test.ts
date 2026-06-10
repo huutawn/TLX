@@ -28,16 +28,20 @@ describe('DetectorService framework strategies', () => {
         import HeroCard from '../components/HeroCard';
         import { StatsService } from '../services/stats.service';
         import { apiClient } from '../services/api-client';
+        import { refreshSession, logout } from '../services/auth-client';
 
         export default async function Home() {
           await StatsService.load();
           await fetch('/api/stats');
           await apiClient.get('/api/campaigns');
-          return <><Link href="/campaigns">Campaigns</Link><HeroCard /></>;
+          return <><Link href="/campaigns">Campaigns</Link><Link href="/map/">Map</Link><HeroCard /></>;
         }
       `,
       'app/campaigns/page.tsx': `export default function Campaigns() { return <main />; }`,
+      'app/map/page.tsx': `export default function MapPage() { return <main />; }`,
       'app/api/campaigns/route.ts': `export async function GET() { return Response.json([]); }`,
+      'app/api/auth/refresh/route.ts': `export async function POST() { return Response.json({ ok: true }); }`,
+      'app/api/auth/logout/route.ts': `export async function POST() { return Response.json({ ok: true }); }`,
       'pages/api/legacy/[id].ts': `export default function handler() {}`,
       'components/HeroCard.tsx': `
         import CtaButton from './CtaButton';
@@ -46,6 +50,10 @@ describe('DetectorService framework strategies', () => {
       'components/CtaButton.tsx': `export default function CtaButton() { return <button />; }`,
       'services/stats.service.ts': `export const StatsService = { load: () => fetch('/api/service-stats') };`,
       'services/api-client.ts': `export const apiClient = { get: (path: string) => fetch(path), loadUser: (id: string) => axios.get(\`/api/users/\${id}\`) };`,
+      'services/auth-client.ts': `
+        export function refreshSession() { return fetch('/api/auth/refresh'); }
+        export function logout() { return fetch('/auth/logout'); }
+      `,
     });
 
     const result = await new DetectorService().detectProject(rootDir);
@@ -59,8 +67,14 @@ describe('DetectorService framework strategies', () => {
     expect(result.scanGraph.pages[0]?.apis).toContain('/api/service-stats');
     expect(result.scanGraph.pages[0]?.apis).toContain('/api/campaigns');
     expect(result.scanGraph.pages[0]?.apis).toContain('/api/users/:param');
+    expect(result.scanGraph.pages[0]?.apis).not.toContain('/api/auth/refresh');
+    expect(result.scanGraph.pages[0]?.apis).not.toContain('/auth/logout');
     expect(result.scanGraph.apis).toContain('/api/legacy/:id');
+    expect(result.scanGraph.apis).not.toContain('/api/auth/refresh');
+    expect(result.scanGraph.apis).not.toContain('/api/auth/logout');
     expect(result.scanGraph.pages[0]?.links).toContain('/campaigns');
+    expect(result.scanGraph.pages[0]?.links).toContain('/map');
+    expect(result.scanGraph.pages[0]?.links).not.toContain('/map/');
     expect(result.scanGraph.edges.some((edge) => edge.type === 'page_uses_component')).toBe(true);
     expect(result.scanGraph.edges.some((edge) => edge.type === 'component_uses_component')).toBe(true);
     expect(result.scanGraph.edges.some((edge) => edge.type === 'page_calls_api')).toBe(true);

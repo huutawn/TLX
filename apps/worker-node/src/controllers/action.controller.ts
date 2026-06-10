@@ -18,6 +18,7 @@ export class ActionController {
         framework: this.context.project.framework,
         rootDir: this.context.project.rootDir,
         startedAt: this.context.startedAt,
+        pid: process.pid,
       };
 
       res.json(response);

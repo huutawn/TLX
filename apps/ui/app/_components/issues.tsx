@@ -142,7 +142,7 @@ function InvalidArtifact({ issue, reason }: { issue: TlxScanIssue; reason: strin
 }
 
 function isVisualIssue(issue: TlxScanIssue) {
-  return issue.kind === "overlap" || issue.kind === "overflow" || issue.kind === "contrast";
+  return issue.kind === "overlap" || issue.kind === "overflow" || issue.kind === "contrast" || issue.kind === "color_harmony";
 }
 
 function viewportDimensions(issue: TlxScanIssue) {
@@ -161,6 +161,7 @@ function issueTitle(issue: TlxScanIssue) {
   if (issue.kind === "overlap") return "Overlap";
   if (issue.kind === "overflow") return "Horizontal overflow";
   if (issue.kind === "contrast") return "Low contrast";
+  if (issue.kind === "color_harmony") return "OKLCH harmony";
   if (issue.kind === "crawler") return "Crawler";
   if (issue.kind === "api") return "API";
   return issue.kind;
@@ -175,6 +176,10 @@ function issueTestDescription(issue: TlxScanIssue) {
   }
   if (issue.kind === "contrast") {
     return `Checked WCAG text contrast. Ratio ${String(issue.metadata.ratio ?? "unknown")}:1 against required scan threshold; text ${String(issue.metadata.color ?? "unknown")}, background ${String(issue.metadata.backgroundColor ?? "unknown")}.`;
+  }
+  if (issue.kind === "color_harmony") {
+    const routeDrift = issue.metadata.routeHueDrift ? ` Route drift ${String(issue.metadata.routeHueDrift)}deg from global palette.` : "";
+    return `Checked OKLCH palette harmony. Score ${String(issue.metadata.score ?? "unknown")}; dominant hue ${String(issue.metadata.dominantHue ?? "neutral")}; strong hue families ${String(issue.metadata.strongHueFamilies ?? "unknown")}; high-chroma area ${String(issue.metadata.highChromaAreaRatio ?? "unknown")}.${routeDrift}`;
   }
   if (issue.kind === "crawler") return "Checked local route health, internal link crawl safety, and console errors.";
   if (issue.kind === "api") return "Checked discovered API endpoint response status and JSON validity.";

@@ -31,7 +31,7 @@
     "build:worker": "bun --filter @tlx/worker-node build",
     "build:host": "go build -o dist/tlx ./cmd/tlx",
     "build:ui": "bun --filter @tlx/ui build",
-    "dev:host": "go run ./cmd/tlx",
+    "dev:host": "TLX_RESTART_WORKER=1 go run ./cmd/tlx",
     "typecheck": "bun run --filter './packages/*' typecheck && bun run --filter './apps/*' typecheck",
     "lint": "bun run --filter './apps/*' lint",
     "check": "bun run typecheck && bun run lint",
