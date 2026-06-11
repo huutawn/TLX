@@ -6,8 +6,8 @@ describe('Phase 2 contract schemas', () => {
   test('scan-result schema includes structured report', async () => {
     const schema = await readSchema('scan-result.schema.json');
     expect(schema.required).toContain('report');
-    expect(schema.$defs.report.required).toEqual(['id', 'scope', 'startedAt', 'finishedAt', 'success', 'summary', 'issues', 'screenshots', 'warnings']);
-    expect(schema.$defs.issue.properties.kind.enum).toEqual(['overlap', 'overflow', 'contrast', 'color_harmony', 'crawler', 'api', 'auth_required', 'auth_failed']);
+    expect(schema.$defs.report.required).toEqual(['id', 'scope', 'routes', 'startedAt', 'finishedAt', 'success', 'summary', 'issues', 'screenshots', 'warnings']);
+    expect(schema.$defs.issue.properties.kind.enum).toEqual(['overlap', 'overflow', 'contrast', 'color_harmony', 'alignment', 'spacing', 'typography', 'orphan', 'hit_area', 'text_clipping', 'crawler', 'api', 'auth_required', 'auth_failed']);
     expect(schema.$defs.report.properties.colorAnalysis.$ref).toBe('#/$defs/colorAnalysis');
   });
 

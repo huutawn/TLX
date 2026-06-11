@@ -78,6 +78,9 @@ describe('UI analyzer', () => {
     expect(result.issues.some((issue) => issue.kind === 'overlap')).toBe(true);
     expect(result.issues.some((issue) => issue.kind === 'overflow')).toBe(true);
     expect(result.issues.some((issue) => issue.kind === 'contrast')).toBe(true);
+    const overlap = result.issues.find((issue) => issue.kind === 'overlap');
+    expect(overlap?.boundingBox).toEqual({ x: 0, y: 0, width: 100, height: 50 });
+    expect(overlap?.metadata.evidenceBox).toEqual({ x: 20, y: 10, width: 80, height: 40 });
     expect(result.issues.every((issue) => issue.message.includes('Fix:'))).toBe(true);
   });
 
@@ -112,6 +115,76 @@ describe('UI analyzer', () => {
 
     expect(result.issues.some((issue) => issue.kind === 'overlap')).toBe(false);
   });
+
+  test('reports small alignment drift inside a component cluster', () => {
+    const result = analyzeElements([
+      element('#a', 40, 20, 120, 32, 'A', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { areaSelector: '#panel' }),
+      element('#b', 43, 70, 120, 32, 'B', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { areaSelector: '#panel' }),
+      element('#c', 40, 120, 120, 32, 'C', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { areaSelector: '#panel' }),
+    ], baseOptions());
+
+    const issue = result.issues.find((item) => item.kind === 'alignment');
+    expect(issue?.metadata.driftPx).toBe(3);
+  });
+
+  test('reports sibling spacing that misses the 4px grid', () => {
+    const result = analyzeElements([
+      element('#a', 0, 20, 40, 32, 'A', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { parentSelector: '#row' }),
+      element('#b', 48, 20, 40, 32, 'B', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { parentSelector: '#row' }),
+      element('#c', 105, 20, 40, 32, 'C', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { parentSelector: '#row' }),
+    ], baseOptions());
+
+    const issue = result.issues.find((item) => item.kind === 'spacing');
+    expect(issue?.metadata.gapPx).toBe(17);
+    expect(issue?.boundingBox).toEqual({ x: 105, y: 20, width: 40, height: 32 });
+    expect(issue?.metadata.evidenceBox).toEqual({ x: 88, y: 20, width: 17, height: 32 });
+  });
+
+  test('reports typography scale and minimum font problems', () => {
+    const result = analyzeElements([
+      { ...element('#title', 0, 0, 300, 24, 'Heading', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { areaSelector: '#panel', fontSize: 14 }), tagName: 'H1' },
+      { ...element('#body', 0, 40, 300, 24, 'Readable body text', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { areaSelector: '#panel', fontSize: 14, lineHeight: 20 }), tagName: 'P' },
+      { ...element('#tiny', 0, 80, 80, 16, 'Tiny', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { areaSelector: '#panel', fontSize: 10 }), tagName: 'BUTTON' },
+    ], baseOptions());
+
+    expect(result.issues.some((issue) => issue.kind === 'typography' && issue.metadata.evidence === 'font-size-minimum')).toBe(true);
+    expect(result.issues.some((issue) => issue.kind === 'typography' && issue.metadata.evidence === 'type-scale-hierarchy')).toBe(true);
+  });
+
+  test('reports orphan elements far from the main UI cluster', () => {
+    const result = analyzeElements([
+      element('#a', 0, 0, 80, 32, 'A', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'),
+      element('#b', 0, 48, 80, 32, 'B', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'),
+      element('#c', 100, 0, 80, 32, 'C', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'),
+      element('#lonely', 760, 0, 80, 32, 'Lonely', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'),
+    ], baseOptions());
+
+    expect(result.issues.some((issue) => issue.kind === 'orphan' && issue.selector === '#lonely')).toBe(true);
+  });
+
+  test('reports small interactive hit areas', () => {
+    const result = analyzeElements([
+      { ...element('#icon', 0, 0, 24, 24, 'X', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { display: 'block' }), tagName: 'BUTTON' },
+    ], baseOptions());
+
+    expect(result.issues.some((issue) => issue.kind === 'hit_area')).toBe(true);
+  });
+
+  test('reports clipped text from scroll metrics', () => {
+    const result = analyzeElements([
+      element('#clip', 0, 0, 120, 20, 'This text cannot fit inside the box', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], {
+        overflowX: 'hidden',
+        overflowY: 'hidden',
+        whiteSpace: 'nowrap',
+        scrollWidth: 260,
+        clientWidth: 120,
+        scrollHeight: 20,
+        clientHeight: 20,
+      }),
+    ], baseOptions());
+
+    expect(result.issues.some((issue) => issue.kind === 'text_clipping')).toBe(true);
+  });
 });
 
 function baseOptions() {
@@ -133,6 +206,6 @@ function colorThresholds() {
   };
 }
 
-function element(selector: string, x: number, y: number, width: number, height: number, text: string, color: string, backgroundColor: string, occludes: string[] = []): ScannedElement {
-  return { selector, tagName: 'DIV', text, color, backgroundColor, boundingBox: { x, y, width, height }, occludes };
+function element(selector: string, x: number, y: number, width: number, height: number, text: string, color: string, backgroundColor: string, occludes: string[] = [], extra: Partial<ScannedElement> = {}): ScannedElement {
+  return { selector, tagName: 'DIV', text, color, backgroundColor, boundingBox: { x, y, width, height }, occludes, ...extra };
 }

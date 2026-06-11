@@ -44,6 +44,83 @@ describe('UI/UX scanner Playwright fixtures', () => {
     expect(result.issues.some((issue) => issue.kind === 'contrast')).toBe(true);
   });
 
+  test('detects alignment drift from real DOM geometry', async () => {
+    const result = await scanFixture(`
+      <style>
+        body { margin: 0; background: white; color: black; font-family: sans-serif; }
+        main { position: relative; min-height: 220px; }
+        button { position: absolute; width: 120px; height: 32px; color: black; background: white; border: 1px solid #ddd; }
+        #a { left: 40px; top: 20px; } #b { left: 43px; top: 70px; } #c { left: 40px; top: 120px; }
+      </style>
+      <main><button id="a">One</button><button id="b">Two</button><button id="c">Three</button></main>
+    `);
+
+    expect(result.issues.some((issue) => issue.kind === 'alignment')).toBe(true);
+  });
+
+  test('detects spacing inconsistency from sibling boxes', async () => {
+    const result = await scanFixture(`
+      <style>
+        body { margin: 0; background: white; color: black; font-family: sans-serif; }
+        main { position: relative; min-height: 120px; }
+        .item { position: absolute; top: 20px; width: 40px; height: 32px; color: black; background: white; }
+        #a { left: 0; } #b { left: 48px; } #c { left: 105px; }
+      </style>
+      <main><div id="a" class="item __tlx-target">A</div><div id="b" class="item __tlx-target">B</div><div id="c" class="item __tlx-target">C</div></main>
+    `);
+
+    expect(result.issues.some((issue) => issue.kind === 'spacing')).toBe(true);
+  });
+
+  test('detects typography issues from computed styles', async () => {
+    const result = await scanFixture(`
+      <style>
+        body { margin: 0; background: white; color: black; font-family: sans-serif; }
+        main { padding: 24px; }
+        h1, p { margin: 0 0 12px; font-size: 14px; line-height: 20px; color: black; background: white; }
+        button { width: 80px; height: 32px; font-size: 10px; color: black; background: white; }
+      </style>
+      <main><h1 id="title">Title</h1><p id="body">Readable body text</p><button id="tiny">Tiny</button></main>
+    `);
+
+    expect(result.issues.some((issue) => issue.kind === 'typography')).toBe(true);
+  });
+
+  test('detects orphan elements far from the main cluster', async () => {
+    const result = await scanFixture(`
+      <style>
+        body { margin: 0; background: white; color: black; font-family: sans-serif; }
+        main { position: relative; min-height: 140px; }
+        button { position: absolute; width: 80px; height: 32px; color: black; background: white; }
+        #a { left: 0; top: 0; } #b { left: 0; top: 48px; } #c { left: 100px; top: 0; } #lonely { left: 760px; top: 0; }
+      </style>
+      <main><button id="a">A</button><button id="b">B</button><button id="c">C</button><button id="lonely">Lonely</button></main>
+    `);
+
+    expect(result.issues.some((issue) => issue.kind === 'orphan')).toBe(true);
+  });
+
+  test('detects small interactive hit areas', async () => {
+    const result = await scanFixture(`
+      <style>body { margin: 0; background: white; color: black; } button { width: 24px; height: 24px; padding: 0; color: black; background: white; }</style>
+      <button id="icon">x</button>
+    `);
+
+    expect(result.issues.some((issue) => issue.kind === 'hit_area')).toBe(true);
+  });
+
+  test('detects clipped text from browser layout metrics', async () => {
+    const result = await scanFixture(`
+      <style>
+        body { margin: 0; background: white; color: black; font-family: sans-serif; }
+        p { width: 120px; height: 20px; overflow: hidden; white-space: nowrap; color: black; background: white; }
+      </style>
+      <p id="clip">This text cannot fit inside the available box</p>
+    `);
+
+    expect(result.issues.some((issue) => issue.kind === 'text_clipping')).toBe(true);
+  });
+
   test('does not report contrast from text on gradient background', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-gradient-'));
     tempRoots.push(root);
@@ -208,6 +285,7 @@ describe('UI/UX scanner Playwright fixtures', () => {
       });
 
       expect(result.routesScanned).toBe(3);
+      expect(result.routes).toEqual(['/', '/about', '/settings']);
     } finally {
       server.stop(true);
     }
@@ -250,6 +328,7 @@ describe('UI/UX scanner Playwright fixtures', () => {
       });
 
       expect(result.report.scope).toBe('all');
+      expect(result.report.routes).toEqual(['/', '/about']);
       expect(result.report.summary.routesScanned).toBeGreaterThan(0);
     } finally {
       server.stop(true);
@@ -344,6 +423,44 @@ describe('UI/UX scanner Playwright fixtures', () => {
         const stat = await fs.stat(path.join(root, issue.screenshotPath ?? ''));
         expect(stat.size).toBeGreaterThan(0);
       }
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('runner waits for client-rendered DOM before analysis', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tlx-uiux-client-settle-'));
+    tempRoots.push(root);
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response(`
+          <style>
+            body { margin: 0; background: white; color: black; }
+            #wide { width: 1400px; height: 40px; color: black; background: white; }
+          </style>
+          <main id="root"><p>Loading</p></main>
+          <script>
+            setTimeout(() => {
+              document.getElementById('root').innerHTML = '<div id="wide" class="__tlx-target">Client rendered wide content</div>';
+            }, 300);
+          </script>
+        `, { headers: { 'Content-Type': 'text/html' } });
+      },
+    });
+
+    try {
+      const runner = new PlaywrightScannerRunner();
+      const result = await runner.scan([{ route: '/', url: `http://localhost:${server.port}/` }], {
+        reportId: 'client-settle',
+        screenshotsDir: root,
+        relativeScreenshotPath: (_id, fileName) => fileName,
+        config: testConfig(),
+        apiEndpoints: [],
+      });
+
+      const issue = result.issues.find((item) => item.kind === 'overflow');
+      expect(issue?.metadata.textSample).toContain('Client rendered wide content');
     } finally {
       server.stop(true);
     }
@@ -461,7 +578,7 @@ async function scanFixture(html: string, captureScreenshot = false) {
   try {
     await page.setContent(html, { waitUntil: 'load' });
     const pageScan = await page.evaluate(() => {
-      const selectors = 'button, a, h1, h2, h3, p, input, label, textarea, select, img, [data-tlx-target], .__tlx-target';
+      const selectors = 'main, section, article, nav, header, footer, aside, form, button, a, h1, h2, h3, p, input, label, textarea, select, img, svg, [data-tlx-target], .__tlx-target';
       return Array.from(document.querySelectorAll<HTMLElement>(selectors))
         .map((el) => {
           const rect = el.getBoundingClientRect();
@@ -474,6 +591,26 @@ async function scanFixture(html: string, captureScreenshot = false) {
             boundingBox: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
             color: style.color,
             backgroundColor: style.backgroundColor === 'rgba(0, 0, 0, 0)' ? window.getComputedStyle(document.body).backgroundColor : style.backgroundColor,
+            fontSize: parseCssPx(style.fontSize),
+            fontFamily: style.fontFamily,
+            fontWeight: style.fontWeight,
+            lineHeight: parseLineHeight(style.lineHeight, style.fontSize),
+            letterSpacing: parseCssPx(style.letterSpacing) ?? 0,
+            display: style.display,
+            position: style.position,
+            role: el.getAttribute('role') ?? undefined,
+            parentSelector: el.parentElement && el.parentElement !== document.body ? (el.parentElement.id ? `#${el.parentElement.id}` : el.parentElement.tagName.toLowerCase()) : undefined,
+            childrenSelectors: Array.from(el.children).filter((child): child is HTMLElement => child instanceof HTMLElement).map((child) => child.id ? `#${child.id}` : child.tagName.toLowerCase()),
+            margin: boxEdges(style, 'margin'),
+            padding: boxEdges(style, 'padding'),
+            overflowX: style.overflowX,
+            overflowY: style.overflowY,
+            whiteSpace: style.whiteSpace,
+            textOverflow: style.textOverflow,
+            scrollWidth: el.scrollWidth,
+            scrollHeight: el.scrollHeight,
+            clientWidth: el.clientWidth,
+            clientHeight: el.clientHeight,
             areaLabel: el.closest<HTMLElement>('section, article, main, nav, header, footer, aside, form')?.getAttribute('aria-label') ?? el.closest<HTMLElement>('section, article, main, nav, header, footer, aside, form')?.tagName.toLowerCase(),
             areaSelector: el.closest<HTMLElement>('section, article, main, nav, header, footer, aside, form')?.tagName.toLowerCase(),
             ancestorSelectors: [],
@@ -482,6 +619,27 @@ async function scanFixture(html: string, captureScreenshot = false) {
           } satisfies ScannedElement;
         })
         .filter((item) => item.boundingBox.width > 0 && item.boundingBox.height > 0);
+
+      function parseCssPx(value: string): number | undefined {
+        const parsed = Number.parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      }
+
+      function parseLineHeight(lineHeight: string, fontSize: string): number | undefined {
+        const parsed = parseCssPx(lineHeight);
+        if (parsed !== undefined) return parsed;
+        const size = parseCssPx(fontSize);
+        return size !== undefined && lineHeight === 'normal' ? size * 1.2 : undefined;
+      }
+
+      function boxEdges(style: CSSStyleDeclaration, prefix: 'margin' | 'padding') {
+        return {
+          top: parseCssPx(style.getPropertyValue(`${prefix}-top`)) ?? 0,
+          right: parseCssPx(style.getPropertyValue(`${prefix}-right`)) ?? 0,
+          bottom: parseCssPx(style.getPropertyValue(`${prefix}-bottom`)) ?? 0,
+          left: parseCssPx(style.getPropertyValue(`${prefix}-left`)) ?? 0,
+        };
+      }
     });
     for (let leftIndex = 0; leftIndex < pageScan.length; leftIndex += 1) {
       const left = pageScan[leftIndex];
@@ -543,6 +701,20 @@ function testConfig(colorHarmony: Partial<TlxProjectConfig['scan']['colorHarmony
         maxHighChromaAreaRatio: 0.35,
         maxHueSpread: 150,
         ...colorHarmony,
+      },
+      visualQuality: {
+        enabled: true,
+        alignmentTolerancePx: 2,
+        alignmentMaxDriftPx: 5,
+        spacingGridPx: 4,
+        spacingTolerancePx: 1,
+        spacingMedianDriftPx: 4,
+        orphanDistancePx: 500,
+        minDesktopHitTargetPx: 32,
+        minMobileHitTargetPx: 40,
+        minReadableFontPx: 12,
+        minMobileReadableFontPx: 14,
+        minInteractiveFontPx: 13,
       },
       crawler: { enabled: false, maxDepth: 1, maxPages: 10 },
       api: { enabled: false, unsafeMethods: false },

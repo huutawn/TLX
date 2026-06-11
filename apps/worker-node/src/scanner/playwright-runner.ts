@@ -27,6 +27,7 @@ export interface PlaywrightScanOptions {
 export interface PlaywrightScanResult {
   issues: TlxScanIssue[];
   screenshots: string[];
+  routes: string[];
   elementsScanned: number;
   routesScanned: number;
   warnings: string[];
@@ -73,64 +74,73 @@ export class PlaywrightScannerRunner {
         for (let targetIndex = 0; targetIndex < queuedTargets.length; targetIndex += 1) {
           const target = queuedTargets[targetIndex];
           if (!target) continue;
-          const response = await page.goto(target.url, { waitUntil: 'networkidle' });
-          scannedRoutes.add(target.route);
-          scannedTargetUrls.set(target.route, target.url);
-          if (response && (response.status() === 401 || response.status() === 403)) {
-            issues.push(createAuthIssue(target, response.status(), viewport.name, Boolean(options.storageStatePath)));
-            continue;
-          }
+          try {
+            const response = await page.goto(target.url, { waitUntil: 'networkidle' });
+            await waitForPageSettled(page);
+            scannedRoutes.add(target.route);
+            scannedTargetUrls.set(target.route, target.url);
+            if (response && (response.status() === 401 || response.status() === 403)) {
+              issues.push(createAuthIssue(target, response.status(), viewport.name, Boolean(options.storageStatePath)));
+              continue;
+            }
 
-          if (response && response.status() >= 400) {
-            issues.push(createSyntheticIssue('crawler', target, `Route returned HTTP ${response.status()}. Fix: verify this page exists, the dev server route is correct, and required data loaders do not fail.`, { status: response.status(), viewport: viewport.name }));
-          }
+            if (response && response.status() >= 400) {
+              issues.push(createSyntheticIssue('crawler', target, `Route returned HTTP ${response.status()}. Fix: verify this page exists, the dev server route is correct, and required data loaders do not fail.`, { status: response.status(), viewport: viewport.name }));
+            }
 
-          if (options.discoverRoutes) {
-            const discovered = await discoverInternalTargets(page, target, options.config.scan.crawler.maxPages);
-            const seenRoutes = new Set(queuedTargets.map((item) => item.route));
-            for (const discoveredTarget of discovered) {
-              if (!seenRoutes.has(discoveredTarget.route) && queuedTargets.length < options.config.scan.crawler.maxPages) {
-                queuedTargets.push(discoveredTarget);
-                seenRoutes.add(discoveredTarget.route);
+            if (options.discoverRoutes) {
+              const discovered = await discoverInternalTargets(page, target, options.config.scan.crawler.maxPages);
+              const seenRoutes = new Set(queuedTargets.map((item) => item.route));
+              for (const discoveredTarget of discovered) {
+                if (!seenRoutes.has(discoveredTarget.route) && queuedTargets.length < options.config.scan.crawler.maxPages) {
+                  queuedTargets.push(discoveredTarget);
+                  seenRoutes.add(discoveredTarget.route);
+                }
               }
             }
-          }
 
-          const pageScan = await collectElements(page);
-          const result = analyzeElements(pageScan.elements, {
-            route: target.route,
-            url: target.url,
-            viewport,
-            contrastRatio: options.config.scan.contrastRatio,
-            colorHarmony: {
-              enabled: options.config.scan.colorHarmony.enabled,
-              thresholds: colorHarmonyThresholds(options.config),
-            },
-            viewportName: viewport.name,
-            issuePrefix: `${options.reportId}-${slugRoute(target.route)}-${viewport.name}`,
-            pageMetrics: pageScan.pageMetrics,
-          });
-          elementsScanned += result.elementsScanned;
-          if (result.colorAnalysis) routeColorAnalyses.push(result.colorAnalysis);
-          const analyzedIssues = result.issues.map((issue) => ({ ...issue, metadata: { ...issue.metadata, viewport: viewport.name } }));
-          issues.push(...analyzedIssues);
+            const pageScan = await collectElements(page);
+            const result = analyzeElements(pageScan.elements, {
+              route: target.route,
+              url: target.url,
+              viewport,
+              contrastRatio: options.config.scan.contrastRatio,
+              colorHarmony: {
+                enabled: options.config.scan.colorHarmony.enabled,
+                thresholds: colorHarmonyThresholds(options.config),
+              },
+              visualQuality: options.config.scan.visualQuality,
+              viewportName: viewport.name,
+              issuePrefix: `${options.reportId}-${slugRoute(target.route)}-${viewport.name}`,
+              pageMetrics: pageScan.pageMetrics,
+              pageState: pageScan.pageState,
+            });
+            elementsScanned += result.elementsScanned;
+            if (result.colorAnalysis) routeColorAnalyses.push(result.colorAnalysis);
+            const analyzedIssues = result.issues.map((issue) => ({ ...issue, metadata: { ...issue.metadata, viewport: viewport.name } }));
+            issues.push(...analyzedIssues);
 
-          const visualIssues = analyzedIssues.filter(isVisualIssue);
-          if (visualIssues.length > 0) {
-            await captureVisualScreenshot(page, target, viewport.name, visualIssues, options, screenshots, warnings, artifactErrors);
-          }
+            const visualIssues = analyzedIssues.filter(isVisualIssue);
+            if (visualIssues.length > 0) {
+              await captureVisualScreenshot(page, target, viewport.name, visualIssues, options, screenshots, warnings, artifactErrors);
+            }
 
-          if (options.config.scan.crawler.enabled) {
-            issues.push(...(await crawlSafe(page, target, options.config.scan.crawler.maxDepth, options.config.scan.crawler.maxPages)));
-          }
+            if (options.config.scan.crawler.enabled) {
+              issues.push(...(await crawlSafe(page, target, options.config.scan.crawler.maxDepth, options.config.scan.crawler.maxPages)));
+            }
 
-          if (consoleErrors.length > 0) {
-            issues.push(createSyntheticIssue('crawler', target, 'Page logged a console error. Fix: open this route, check the listed console errors, and repair the failing component or data request.', { errors: [...consoleErrors], viewport: viewport.name }));
+            if (consoleErrors.length > 0) {
+              issues.push(createSyntheticIssue('crawler', target, 'Page logged a console error. Fix: open this route, check the listed console errors, and repair the failing component or data request.', { errors: [...consoleErrors], viewport: viewport.name }));
+              consoleErrors.length = 0;
+            }
+
+            if (options.config.scan.api.enabled) {
+              issues.push(...(await checkApiContracts(page, target, options.apiEndpoints, options.config.scan.api.unsafeMethods)));
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            warnings.push(`[${viewport.name} ${target.route}] ${message}`);
             consoleErrors.length = 0;
-          }
-
-          if (options.config.scan.api.enabled) {
-            issues.push(...(await checkApiContracts(page, target, options.apiEndpoints, options.config.scan.api.unsafeMethods)));
           }
         }
       } catch (error) {
@@ -175,7 +185,8 @@ export class PlaywrightScannerRunner {
       }
     }
 
-    return { issues, screenshots: [...screenshots], elementsScanned, routesScanned: scannedRoutes.size, warnings, artifactErrors, colorAnalysis };
+    const routes = [...scannedRoutes];
+    return { issues, screenshots: [...screenshots], routes, elementsScanned, routesScanned: routes.length, warnings, artifactErrors, colorAnalysis };
   }
 }
 
@@ -199,6 +210,7 @@ async function captureSyntheticRouteScreenshot(browser: Browser, issue: TlxScanI
   const page = await context.newPage();
   try {
     await page.goto(issue.url, { waitUntil: 'networkidle' });
+    await waitForPageSettled(page);
     await captureVisualScreenshot(page, { route: issue.route, url: issue.url }, String(issue.metadata.viewport ?? 'default'), [issue], options, screenshots, warnings, artifactErrors);
   } finally {
     await page.close();
@@ -228,8 +240,28 @@ async function captureVisualScreenshot(page: Page, target: RouteScanTarget, view
   }
 }
 
+async function waitForPageSettled(page: Page) {
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
+  await page.evaluate(() => document.fonts?.ready.then(() => undefined)).catch(() => undefined);
+  await page.waitForFunction(() => {
+    const root = document.documentElement;
+    const bodyText = document.body?.innerText ?? '';
+    const signature = `${location.href}|${root.scrollWidth}x${root.scrollHeight}|${bodyText.length}|${bodyText.slice(0, 240)}`;
+    const key = '__tlxStableState';
+    const state = ((window as unknown as Record<string, { signature: string; count: number }>)[key] ?? { signature, count: 0 });
+    if (state.signature === signature) state.count += 1;
+    else {
+      state.signature = signature;
+      state.count = 0;
+    }
+    (window as unknown as Record<string, { signature: string; count: number }>)[key] = state;
+    return state.count >= 2;
+  }, undefined, { timeout: 2_500, polling: 250 }).catch(() => undefined);
+  await page.waitForTimeout(100).catch(() => undefined);
+}
+
 function isVisualIssue(issue: TlxScanIssue) {
-  return issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast' || issue.kind === 'color_harmony';
+  return issue.kind === 'overlap' || issue.kind === 'overflow' || issue.kind === 'contrast' || issue.kind === 'color_harmony' || issue.kind === 'alignment' || issue.kind === 'spacing' || issue.kind === 'typography' || issue.kind === 'orphan' || issue.kind === 'hit_area' || issue.kind === 'text_clipping';
 }
 
 function uniqueTargets(targets: RouteScanTarget[]): RouteScanTarget[] {
@@ -267,7 +299,7 @@ function createTargetFromUrl(url: URL): RouteScanTarget {
   return { route, url: `${url.origin}${route}` };
 }
 
-async function collectElements(page: Page): Promise<{ elements: ScannedElement[]; pageMetrics: { scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number } }> {
+async function collectElements(page: Page): Promise<{ elements: ScannedElement[]; pageMetrics: { scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number }; pageState: { title: string; url: string; textSample: string } }> {
   return page.evaluate(() => {
     const selectors = 'main, section, article, nav, header, footer, aside, form, button, a, h1, h2, h3, p, input, label, textarea, select, img, svg, [data-tlx-target], .__tlx-target';
     const elements = Array.from(document.querySelectorAll<HTMLElement>(selectors))
@@ -282,6 +314,26 @@ async function collectElements(page: Page): Promise<{ elements: ScannedElement[]
           boundingBox: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           color: style.color,
           backgroundColor: findBackgroundColor(el),
+          fontSize: parseCssPx(style.fontSize),
+          fontFamily: style.fontFamily,
+          fontWeight: style.fontWeight,
+          lineHeight: parseLineHeight(style.lineHeight, style.fontSize),
+          letterSpacing: parseCssPx(style.letterSpacing) ?? 0,
+          display: style.display,
+          position: style.position,
+          role: el.getAttribute('role') ?? undefined,
+          parentSelector: el.parentElement && el.parentElement !== document.body ? buildSelector(el.parentElement) : undefined,
+          childrenSelectors: Array.from(el.children).filter((child): child is HTMLElement => child instanceof HTMLElement).map((child) => buildSelector(child)),
+          margin: boxEdges(style, 'margin'),
+          padding: boxEdges(style, 'padding'),
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+          whiteSpace: style.whiteSpace,
+          textOverflow: style.textOverflow,
+          scrollWidth: el.scrollWidth,
+          scrollHeight: el.scrollHeight,
+          clientWidth: el.clientWidth,
+          clientHeight: el.clientHeight,
           colorSamples: colorSamples(el, style),
           areaLabel: findAreaLabel(el),
           areaSelector: findAreaSelector(el),
@@ -313,6 +365,11 @@ async function collectElements(page: Page): Promise<{ elements: ScannedElement[]
         clientWidth: document.documentElement.clientWidth,
         scrollHeight: document.documentElement.scrollHeight,
         clientHeight: document.documentElement.clientHeight,
+      },
+      pageState: {
+        title: document.title,
+        url: location.href,
+        textSample: (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 240),
       },
     };
 
@@ -427,6 +484,27 @@ async function collectElements(page: Page): Promise<{ elements: ScannedElement[]
         samples.push({ role: 'fill', value: fill });
       }
       return samples;
+    }
+
+    function parseCssPx(value: string): number | undefined {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+
+    function parseLineHeight(lineHeight: string, fontSize: string): number | undefined {
+      const parsed = parseCssPx(lineHeight);
+      if (parsed !== undefined) return parsed;
+      const size = parseCssPx(fontSize);
+      return size !== undefined && lineHeight === 'normal' ? size * 1.2 : undefined;
+    }
+
+    function boxEdges(style: CSSStyleDeclaration, prefix: 'margin' | 'padding') {
+      return {
+        top: parseCssPx(style.getPropertyValue(`${prefix}-top`)) ?? 0,
+        right: parseCssPx(style.getPropertyValue(`${prefix}-right`)) ?? 0,
+        bottom: parseCssPx(style.getPropertyValue(`${prefix}-bottom`)) ?? 0,
+        left: parseCssPx(style.getPropertyValue(`${prefix}-left`)) ?? 0,
+      };
     }
   });
 }

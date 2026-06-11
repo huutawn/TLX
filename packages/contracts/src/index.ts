@@ -67,7 +67,7 @@ export interface TlxBoundingBox {
   height: number;
 }
 
-export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'color_harmony' | 'crawler' | 'api' | 'auth_required' | 'auth_failed';
+export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'color_harmony' | 'alignment' | 'spacing' | 'typography' | 'orphan' | 'hit_area' | 'text_clipping' | 'crawler' | 'api' | 'auth_required' | 'auth_failed';
 export type TlxScanIssueSeverity = 'info' | 'warning' | 'error';
 
 export interface TlxScanIssue {
@@ -132,6 +132,7 @@ export interface TlxColorAnalysis {
 export interface TlxScanReport {
   id: string;
   scope: TlxScanScope;
+  routes: string[];
   startedAt: string;
   finishedAt: string;
   success: boolean;

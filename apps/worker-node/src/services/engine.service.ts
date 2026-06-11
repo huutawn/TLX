@@ -94,8 +94,9 @@ export class EngineService {
     await storage.ensureProjectStorage();
 
     if (scoped.skipped) {
-      const latest = await storage.readLatestReport();
-      const report = latest ?? createEmptyReport(reportId, requestedScope, startedAt, ['No changed routes to scan.']);
+      const report = createEmptyReport(reportId, requestedScope, startedAt, ['No changed routes to scan.']);
+      const reportWarnings = await storage.writeLatestReport(report);
+      report.warnings.push(...reportWarnings);
       return toResponse(report);
     }
 
@@ -120,6 +121,7 @@ export class EngineService {
     const report: TlxScanReport = {
       id: reportId,
       scope: requestedScope,
+      routes: scan.routes,
       startedAt,
       finishedAt,
       success: scan.artifactErrors.length === 0 && scan.issues.every((issue) => issue.severity !== 'error'),
@@ -184,6 +186,7 @@ function createEmptyReport(id: string, scope: TlxScanScope, startedAt: string, w
   return {
     id,
     scope,
+    routes: [],
     startedAt,
     finishedAt,
     success: true,

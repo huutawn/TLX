@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import type { TlxScanReport } from '@tlx/contracts';
+import type { VisualQualityThresholds } from '../scanner/ui-analyzer';
 import type { ScanGraph } from '../strategies/types';
 
 export interface TlxScanViewport {
@@ -29,6 +30,7 @@ export interface TlxProjectConfig {
       maxHighChromaAreaRatio: number;
       maxHueSpread: number;
     };
+    visualQuality: VisualQualityThresholds;
     crawler: {
       enabled: boolean;
       maxDepth: number;
@@ -72,6 +74,20 @@ export const DEFAULT_TLX_CONFIG: TlxProjectConfig = {
       maxRouteHueDrift: 85,
       maxHighChromaAreaRatio: 0.35,
       maxHueSpread: 150,
+    },
+    visualQuality: {
+      enabled: true,
+      alignmentTolerancePx: 2,
+      alignmentMaxDriftPx: 5,
+      spacingGridPx: 4,
+      spacingTolerancePx: 1,
+      spacingMedianDriftPx: 4,
+      orphanDistancePx: 500,
+      minDesktopHitTargetPx: 32,
+      minMobileHitTargetPx: 40,
+      minReadableFontPx: 12,
+      minMobileReadableFontPx: 14,
+      minInteractiveFontPx: 13,
     },
     crawler: { enabled: true, maxDepth: 2, maxPages: 25 },
     api: { enabled: true, unsafeMethods: false },
@@ -363,6 +379,42 @@ function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value
     case 'scan.colorHarmony.maxHueSpread':
       scan.colorHarmony = { ...(scan.colorHarmony ?? DEFAULT_TLX_CONFIG.scan.colorHarmony), maxHueSpread: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.colorHarmony.maxHueSpread };
       break;
+    case 'scan.visualQuality.enabled':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), enabled: parseBoolean(value) };
+      break;
+    case 'scan.visualQuality.alignmentTolerancePx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), alignmentTolerancePx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.alignmentTolerancePx };
+      break;
+    case 'scan.visualQuality.alignmentMaxDriftPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), alignmentMaxDriftPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.alignmentMaxDriftPx };
+      break;
+    case 'scan.visualQuality.spacingGridPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), spacingGridPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.spacingGridPx };
+      break;
+    case 'scan.visualQuality.spacingTolerancePx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), spacingTolerancePx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.spacingTolerancePx };
+      break;
+    case 'scan.visualQuality.spacingMedianDriftPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), spacingMedianDriftPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.spacingMedianDriftPx };
+      break;
+    case 'scan.visualQuality.orphanDistancePx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), orphanDistancePx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.orphanDistancePx };
+      break;
+    case 'scan.visualQuality.minDesktopHitTargetPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minDesktopHitTargetPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minDesktopHitTargetPx };
+      break;
+    case 'scan.visualQuality.minMobileHitTargetPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minMobileHitTargetPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minMobileHitTargetPx };
+      break;
+    case 'scan.visualQuality.minReadableFontPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minReadableFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minReadableFontPx };
+      break;
+    case 'scan.visualQuality.minMobileReadableFontPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minMobileReadableFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minMobileReadableFontPx };
+      break;
+    case 'scan.visualQuality.minInteractiveFontPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minInteractiveFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minInteractiveFontPx };
+      break;
     case 'scan.crawler.enabled':
       scan.crawler = { ...(scan.crawler ?? DEFAULT_TLX_CONFIG.scan.crawler), enabled: parseBoolean(value) };
       break;
@@ -391,6 +443,7 @@ function mergeConfig(target: TlxProjectConfig, patch: Partial<TlxProjectConfig>)
     ...target.scan,
     ...patch.scan,
     colorHarmony: { ...target.scan.colorHarmony, ...patch.scan.colorHarmony },
+    visualQuality: { ...target.scan.visualQuality, ...patch.scan.visualQuality },
     crawler: { ...target.scan.crawler, ...patch.scan.crawler },
     api: { ...target.scan.api, ...patch.scan.api },
   };
