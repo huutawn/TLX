@@ -3,7 +3,7 @@
 import { AlertTriangle, Bug, Copy } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
-import type { TlxScanIssue } from "@tlx/contracts";
+import { isTlxVisualScanIssue, type TlxScanIssue } from "@tlx/contracts";
 import { issueArea, issueDetails, issueViewport, screenshotUrl, severityTone } from "../_lib/format";
 import { CopyButton, EmptyState, KeyValue } from "./ui";
 
@@ -153,18 +153,18 @@ function InvalidArtifact({ issue, reason }: { issue: TlxScanIssue; reason: strin
   );
 }
 
-function isVisualIssue(issue: TlxScanIssue) {
-  return issue.kind === "overlap" || issue.kind === "overflow" || issue.kind === "contrast" || issue.kind === "color_harmony" || issue.kind === "alignment" || issue.kind === "spacing" || issue.kind === "typography" || issue.kind === "orphan" || issue.kind === "hit_area" || issue.kind === "text_clipping";
+export function isVisualIssue(issue: TlxScanIssue) {
+  return isTlxVisualScanIssue(issue);
 }
 
-function viewportDimensions(issue: TlxScanIssue) {
+export function viewportDimensions(issue: TlxScanIssue) {
   const sourceWidth = positiveNumber(issue.metadata.screenshotWidth ?? issue.metadata.viewportWidth ?? issue.metadata.width);
   const sourceHeight = positiveNumber(issue.metadata.screenshotHeight ?? issue.metadata.viewportHeight ?? issue.metadata.height);
   if (!sourceWidth || !sourceHeight) return undefined;
   return { sourceWidth, sourceHeight };
 }
 
-function boxStyle(box: { x: number; y: number; width: number; height: number }, sourceWidth: number, sourceHeight: number, minPercent: number) {
+export function boxStyle(box: { x: number; y: number; width: number; height: number }, sourceWidth: number, sourceHeight: number, minPercent: number) {
   return {
     left: `${(box.x / sourceWidth) * 100}%`,
     top: `${(box.y / sourceHeight) * 100}%`,
@@ -173,7 +173,7 @@ function boxStyle(box: { x: number; y: number; width: number; height: number }, 
   };
 }
 
-function evidenceBox(issue: TlxScanIssue) {
+export function evidenceBox(issue: TlxScanIssue) {
   const value = issue.metadata.evidenceBox;
   if (!isBox(value)) return undefined;
   return value;
@@ -214,7 +214,13 @@ function issueTitle(issue: TlxScanIssue) {
   if (issue.kind === "typography") return "Typography";
   if (issue.kind === "orphan") return "Orphan element";
   if (issue.kind === "hit_area") return "Hit area";
+  if (issue.kind === "tap_target_spacing") return "Tap target spacing";
   if (issue.kind === "text_clipping") return "Text clipping";
+  if (issue.kind === "line_height_collision") return "Line-height collision";
+  if (issue.kind === "local_scroll") return "Local horizontal scroll";
+  if (issue.kind === "fixed_occlusion") return "Fixed header occlusion";
+  if (issue.kind === "accessible_name") return "Missing accessible name";
+  if (issue.kind === "broken_image") return "Broken image";
   if (issue.kind === "crawler") return "Crawler";
   if (issue.kind === "api") return "API";
   return issue.kind;
@@ -261,8 +267,26 @@ function issueTestDescription(issue: TlxScanIssue) {
   if (issue.kind === "hit_area") {
     return `Checked interactive target size for ${elementLabel(issue)} in ${issueArea(issue)}. Box ${String(issue.metadata.widthPx ?? "unknown")}x${String(issue.metadata.heightPx ?? "unknown")}px; minimum ${String(issue.metadata.expectedMinPx ?? "unknown")}px.`;
   }
+  if (issue.kind === "tap_target_spacing") {
+    return `Checked touch target spacing. Distance ${String(issue.metadata.distancePx ?? "unknown")}px from ${String(issue.metadata.otherSelector ?? "unknown selector")}; expected at least ${String(issue.metadata.expectedGapPx ?? "unknown")}px.`;
+  }
   if (issue.kind === "text_clipping") {
     return `Checked text overflow and clipping metrics. scroll/client ${String(issue.metadata.scrollWidth ?? "unknown")}/${String(issue.metadata.clientWidth ?? "unknown")} width, ${String(issue.metadata.scrollHeight ?? "unknown")}/${String(issue.metadata.clientHeight ?? "unknown")} height.`;
+  }
+  if (issue.kind === "line_height_collision") {
+    return `Checked wrapped text line-height. Ratio ${String(issue.metadata.lineHeightRatio ?? "unknown")}; font ${String(issue.metadata.fontSizePx ?? "unknown")}px; line-height ${String(issue.metadata.lineHeightPx ?? "unknown")}px.`;
+  }
+  if (issue.kind === "local_scroll") {
+    return `Checked local scroll containers. Element scroll/client width ${String(issue.metadata.scrollWidth ?? "unknown")}/${String(issue.metadata.clientWidth ?? "unknown")}; overflow ${String(issue.metadata.overflowX ?? issue.metadata.overflowStyle ?? "unknown")}.`;
+  }
+  if (issue.kind === "fixed_occlusion") {
+    return `Checked anchor/focus scrolling against fixed and sticky elements. Occluder ${String(issue.metadata.occluderSelector ?? "unknown")} covers ${issue.selector}.`;
+  }
+  if (issue.kind === "accessible_name") {
+    return `Checked accessible names for interactive controls. Source ${String(issue.metadata.accessibleNameSource ?? "missing")}; role ${String(issue.metadata.role ?? "unknown")}.`;
+  }
+  if (issue.kind === "broken_image") {
+    return `Checked image load result. Source ${String(issue.metadata.imageSrc ?? "unknown")}; natural size ${String(issue.metadata.naturalWidth ?? "unknown")}x${String(issue.metadata.naturalHeight ?? "unknown")}.`;
   }
   if (issue.kind === "crawler") return "Checked local route health, internal link crawl safety, and console errors.";
   if (issue.kind === "api") return "Checked discovered API endpoint response status and JSON validity.";

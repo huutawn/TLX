@@ -170,6 +170,17 @@ describe('UI analyzer', () => {
     expect(result.issues.some((issue) => issue.kind === 'hit_area')).toBe(true);
   });
 
+  test('reports tap targets placed too close together', () => {
+    const result = analyzeElements([
+      { ...element('#save', 0, 0, 44, 44, 'Save', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'), tagName: 'BUTTON' },
+      { ...element('#delete', 48, 0, 44, 44, 'Delete', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'), tagName: 'BUTTON' },
+    ], baseOptions());
+
+    const issue = result.issues.find((item) => item.kind === 'tap_target_spacing');
+    expect(issue?.metadata.distancePx).toBe(4);
+    expect(issue?.metadata.otherSelector).toBe('#delete');
+  });
+
   test('reports clipped text from scroll metrics', () => {
     const result = analyzeElements([
       element('#clip', 0, 0, 120, 20, 'This text cannot fit inside the box', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], {
@@ -184,6 +195,98 @@ describe('UI analyzer', () => {
     ], baseOptions());
 
     expect(result.issues.some((issue) => issue.kind === 'text_clipping')).toBe(true);
+  });
+
+  test('reports local inline scroll containers', () => {
+    const result = analyzeElements([
+      element('#scroll', 0, 0, 240, 80, 'Very long unbroken table content', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], {
+        overflowX: 'auto',
+        whiteSpace: 'nowrap',
+        scrollWidth: 520,
+        clientWidth: 240,
+      }),
+    ], {
+      ...baseOptions(),
+      pageMetrics: { scrollWidth: 1000, clientWidth: 1000, scrollHeight: 800, clientHeight: 800 },
+    });
+
+    expect(result.issues.some((issue) => issue.kind === 'local_scroll')).toBe(true);
+  });
+
+  test('does not report vertical-only page overflow', () => {
+    const result = analyzeElements([
+      element('#tall', 0, 0, 1000, 1800, 'Tall content', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'),
+    ], {
+      ...baseOptions(),
+      pageMetrics: { scrollWidth: 1000, clientWidth: 1000, scrollHeight: 1800, clientHeight: 800 },
+    });
+
+    expect(result.issues.some((issue) => issue.kind === 'overflow')).toBe(false);
+  });
+
+  test('does not report local scroll below configured threshold', () => {
+    const result = analyzeElements([
+      element('#table', 0, 0, 240, 80, 'Responsive table', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], {
+        overflowX: 'auto',
+        whiteSpace: 'nowrap',
+        scrollWidth: 248,
+        clientWidth: 240,
+      }),
+    ], {
+      ...baseOptions(),
+      visualQuality: { maxLocalScrollOverflowPx: 12 },
+      pageMetrics: { scrollWidth: 1000, clientWidth: 1000, scrollHeight: 800, clientHeight: 800 },
+    });
+
+    expect(result.issues.some((issue) => issue.kind === 'local_scroll')).toBe(false);
+  });
+
+  test('honors visual quality threshold overrides', () => {
+    const result = analyzeElements([
+      { ...element('#icon', 0, 0, 24, 24, 'X', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { display: 'block' }), tagName: 'BUTTON' },
+    ], {
+      ...baseOptions(),
+      visualQuality: { minDesktopHitTargetPx: 20 },
+    });
+
+    expect(result.issues.some((issue) => issue.kind === 'hit_area')).toBe(false);
+  });
+
+  test('can disable visual quality rules while preserving core overflow checks', () => {
+    const result = analyzeElements([
+      { ...element('#icon', 0, 0, 24, 24, 'X', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { display: 'block' }), tagName: 'BUTTON' },
+      element('#wide', 990, 40, 80, 24, 'Wide', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'),
+    ], {
+      ...baseOptions(),
+      visualQuality: { enabled: false },
+    });
+
+    expect(result.issues.some((issue) => issue.kind === 'overflow')).toBe(true);
+    expect(result.issues.some((issue) => issue.kind === 'hit_area')).toBe(false);
+  });
+
+  test('reports icon-only controls without accessible names', () => {
+    const result = analyzeElements([
+      { ...element('#trash', 0, 0, 40, 40, '', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'), tagName: 'BUTTON' },
+    ], baseOptions());
+
+    expect(result.issues.some((issue) => issue.kind === 'accessible_name')).toBe(true);
+  });
+
+  test('reports broken images from natural dimensions', () => {
+    const result = analyzeElements([
+      { ...element('#photo', 0, 0, 160, 90, '', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { complete: true, naturalWidth: 0, naturalHeight: 0, currentSrc: 'http://localhost/missing.png' }), tagName: 'IMG' },
+    ], baseOptions());
+
+    expect(result.issues.some((issue) => issue.kind === 'broken_image')).toBe(true);
+  });
+
+  test('reports multi-line line-height collisions', () => {
+    const result = analyzeElements([
+      { ...element('#title', 0, 0, 220, 40, 'This heading wraps into several tight lines', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)', [], { fontSize: 24, lineHeight: 24, lineBoxCount: 2 }), tagName: 'H1' },
+    ], baseOptions());
+
+    expect(result.issues.some((issue) => issue.kind === 'line_height_collision')).toBe(true);
   });
 });
 

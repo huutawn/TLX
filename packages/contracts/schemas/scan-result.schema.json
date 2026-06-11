@@ -33,7 +33,7 @@
       "required": ["id", "kind", "severity", "message", "route", "url", "selector", "boundingBox", "metadata"],
       "properties": {
         "id": { "type": "string" },
-        "kind": { "enum": ["overlap", "overflow", "contrast", "color_harmony", "alignment", "spacing", "typography", "orphan", "hit_area", "text_clipping", "crawler", "api", "auth_required", "auth_failed"] },
+        "kind": { "enum": ["overlap", "overflow", "contrast", "color_harmony", "alignment", "spacing", "typography", "orphan", "hit_area", "tap_target_spacing", "text_clipping", "line_height_collision", "local_scroll", "fixed_occlusion", "accessible_name", "broken_image", "crawler", "api", "auth_required", "auth_failed"] },
         "severity": { "enum": ["info", "warning", "error"] },
         "message": { "type": "string" },
         "route": { "type": "string" },

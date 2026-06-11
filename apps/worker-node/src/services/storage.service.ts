@@ -85,9 +85,13 @@ export const DEFAULT_TLX_CONFIG: TlxProjectConfig = {
       orphanDistancePx: 500,
       minDesktopHitTargetPx: 32,
       minMobileHitTargetPx: 40,
+      minTapTargetGapPx: 8,
       minReadableFontPx: 12,
       minMobileReadableFontPx: 14,
       minInteractiveFontPx: 13,
+      minLineHeightRatio: 1.15,
+      maxLocalScrollOverflowPx: 12,
+      fixedOcclusionProbeEnabled: true,
     },
     crawler: { enabled: true, maxDepth: 2, maxPages: 25 },
     api: { enabled: true, unsafeMethods: false },
@@ -406,6 +410,9 @@ function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value
     case 'scan.visualQuality.minMobileHitTargetPx':
       scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minMobileHitTargetPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minMobileHitTargetPx };
       break;
+    case 'scan.visualQuality.minTapTargetGapPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minTapTargetGapPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minTapTargetGapPx };
+      break;
     case 'scan.visualQuality.minReadableFontPx':
       scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minReadableFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minReadableFontPx };
       break;
@@ -414,6 +421,15 @@ function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value
       break;
     case 'scan.visualQuality.minInteractiveFontPx':
       scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minInteractiveFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minInteractiveFontPx };
+      break;
+    case 'scan.visualQuality.minLineHeightRatio':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minLineHeightRatio: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minLineHeightRatio };
+      break;
+    case 'scan.visualQuality.maxLocalScrollOverflowPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), maxLocalScrollOverflowPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.maxLocalScrollOverflowPx };
+      break;
+    case 'scan.visualQuality.fixedOcclusionProbeEnabled':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), fixedOcclusionProbeEnabled: parseBoolean(value) };
       break;
     case 'scan.crawler.enabled':
       scan.crawler = { ...(scan.crawler ?? DEFAULT_TLX_CONFIG.scan.crawler), enabled: parseBoolean(value) };
