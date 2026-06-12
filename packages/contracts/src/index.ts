@@ -67,8 +67,29 @@ export interface TlxBoundingBox {
   height: number;
 }
 
-export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'color_harmony' | 'crawler' | 'api' | 'auth_required' | 'auth_failed';
+export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'color_harmony' | 'alignment' | 'spacing' | 'typography' | 'orphan' | 'hit_area' | 'tap_target_spacing' | 'text_clipping' | 'line_height_collision' | 'local_scroll' | 'fixed_occlusion' | 'accessible_name' | 'broken_image' | 'crawler' | 'api' | 'auth_required' | 'auth_failed';
 export type TlxScanIssueSeverity = 'info' | 'warning' | 'error';
+
+export const TLX_VISUAL_SCAN_ISSUE_KINDS = [
+  'overlap',
+  'overflow',
+  'contrast',
+  'color_harmony',
+  'alignment',
+  'spacing',
+  'typography',
+  'orphan',
+  'hit_area',
+  'tap_target_spacing',
+  'text_clipping',
+  'line_height_collision',
+  'local_scroll',
+  'fixed_occlusion',
+  'accessible_name',
+  'broken_image',
+] as const satisfies readonly TlxScanIssueKind[];
+
+export type TlxVisualScanIssueKind = (typeof TLX_VISUAL_SCAN_ISSUE_KINDS)[number];
 
 export interface TlxScanIssue {
   id: string;
@@ -81,6 +102,16 @@ export interface TlxScanIssue {
   boundingBox: TlxBoundingBox;
   screenshotPath?: string;
   metadata: Record<string, unknown>;
+}
+
+const TLX_VISUAL_SCAN_ISSUE_KIND_SET: ReadonlySet<TlxScanIssueKind> = new Set(TLX_VISUAL_SCAN_ISSUE_KINDS);
+
+export function isTlxVisualScanIssueKind(kind: TlxScanIssueKind): kind is TlxVisualScanIssueKind {
+  return TLX_VISUAL_SCAN_ISSUE_KIND_SET.has(kind);
+}
+
+export function isTlxVisualScanIssue(issue: Pick<TlxScanIssue, 'kind'>): issue is TlxScanIssue & { kind: TlxVisualScanIssueKind } {
+  return isTlxVisualScanIssueKind(issue.kind);
 }
 
 export interface TlxScanReportSummary {
@@ -132,6 +163,7 @@ export interface TlxColorAnalysis {
 export interface TlxScanReport {
   id: string;
   scope: TlxScanScope;
+  routes: string[];
   startedAt: string;
   finishedAt: string;
   success: boolean;

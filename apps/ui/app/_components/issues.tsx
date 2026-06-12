@@ -2,7 +2,8 @@
 
 import { AlertTriangle, Bug, Copy } from "lucide-react";
 import Image from "next/image";
-import type { TlxScanIssue } from "@tlx/contracts";
+import { useState } from "react";
+import { isTlxVisualScanIssue, type TlxScanIssue } from "@tlx/contracts";
 import { issueArea, issueDetails, issueViewport, screenshotUrl, severityTone } from "../_lib/format";
 import { CopyButton, EmptyState, KeyValue } from "./ui";
 
@@ -36,16 +37,17 @@ export function IssueList({ issues, selectedIssue, onSelect }: { issues: TlxScan
 
 export function ScreenshotViewer({ issue }: { issue?: TlxScanIssue }) {
   const image = screenshotUrl(issue);
+  const [actualSize, setActualSize] = useState<{ width: number; height: number }>();
 
   if (!issue) {
     return <EmptyState title="Select an issue" detail="Bounding box and screenshot metadata appear here." />;
   }
 
-  if (!isVisualIssue(issue)) {
-    return <EmptyState title="Non-visual check" detail="Crawler and API checks do not produce bounding-box screenshots." />;
-  }
-
   if (!image) {
+    if (!isVisualIssue(issue)) {
+      return <EmptyState title="Non-visual check" detail="Crawler and API checks do not produce bounding-box screenshots." />;
+    }
+
     return (
       <InvalidArtifact issue={issue} reason="Visual issue has no screenshotPath. Rerun scan; scanner did not capture required artifact." />
     );
@@ -57,10 +59,9 @@ export function ScreenshotViewer({ issue }: { issue?: TlxScanIssue }) {
   }
 
   const { sourceWidth, sourceHeight } = dimensions;
-  const left = (issue.boundingBox.x / sourceWidth) * 100;
-  const top = (issue.boundingBox.y / sourceHeight) * 100;
-  const width = Math.max(1, (issue.boundingBox.width / sourceWidth) * 100);
-  const height = Math.max(1, (issue.boundingBox.height / sourceHeight) * 100);
+  const sizeMismatch = actualSize && (Math.abs(actualSize.width - sourceWidth) > 1 || Math.abs(actualSize.height - sourceHeight) > 1);
+  const primaryStyle = boxStyle(issue.boundingBox, sourceWidth, sourceHeight, 1);
+  const evidenceStyle = evidenceBox(issue) ? boxStyle(evidenceBox(issue)!, sourceWidth, sourceHeight, 0.5) : undefined;
 
   return (
     <div className="screenshot-frame">
@@ -71,8 +72,14 @@ export function ScreenshotViewer({ issue }: { issue?: TlxScanIssue }) {
         <code>{issue.url}</code>
       </div>
       <div className="relative overflow-auto bg-slate-950">
-        <Image className="block h-auto w-full min-w-[720px]" src={image} alt={issue.message} width={sourceWidth} height={sourceHeight} unoptimized />
-        <div className="bug-box" style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }} />
+        {sizeMismatch ? (
+          <div className="m-3 rounded-md border border-amber-400/50 bg-amber-950/40 px-3 py-2 text-[13px] leading-5 text-amber-100">
+            Screenshot metadata mismatch: report says {sourceWidth}x{sourceHeight}px, file is {actualSize.width}x{actualSize.height}px. Overlay may be scaled wrong.
+          </div>
+        ) : null}
+        <Image className="block h-auto w-full min-w-[720px]" src={image} alt={issue.message} width={sourceWidth} height={sourceHeight} unoptimized onLoadingComplete={(img) => setActualSize({ width: img.naturalWidth, height: img.naturalHeight })} />
+        {evidenceStyle ? <div className="bug-box-evidence" style={evidenceStyle} /> : null}
+        <div className="bug-box" style={primaryStyle} />
       </div>
     </div>
   );
@@ -87,10 +94,11 @@ export function IssueInspector({ issue }: { issue?: TlxScanIssue }) {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-[24px] font-black tracking-normal text-slate-100">{issue.message}</h2>
+        <h2 className="text-[24px] font-black tracking-normal text-slate-100">{inspectorTitle(issue)}</h2>
         <p className="mt-2 text-[14px] text-slate-400">
-          {issue.kind} · {issue.severity} · {issueArea(issue)}
+          {issue.kind} · {issue.severity} · {elementLabel(issue)} · {issueArea(issue)}
         </p>
+        <p className="mt-3 text-[15px] leading-7 text-slate-300">{issue.message}</p>
       </div>
       <section className="panel">
         <h3 className="mb-3 text-[15px] font-bold text-slate-100">What was tested</h3>
@@ -114,7 +122,11 @@ export function IssueInspector({ issue }: { issue?: TlxScanIssue }) {
         <KeyValue label="Route" value={issue.route} />
         <KeyValue label="Viewport" value={issueViewport(issue)} />
         <KeyValue label="Scanner" value={issue.kind} />
-        <KeyValue label="Box" value={`${issue.boundingBox.x}:${issue.boundingBox.y} ${issue.boundingBox.width}x${issue.boundingBox.height}`} />
+        <KeyValue label="Element" value={elementLabel(issue)} />
+        <KeyValue label="Area" value={issueArea(issue)} />
+        <KeyValue label="Selector" value={issue.selector} />
+        <KeyValue label="Primary box" value={formatBox(issue.boundingBox)} />
+        {evidenceBox(issue) ? <KeyValue label="Evidence box" value={formatBox(evidenceBox(issue)!)} /> : null}
         <div className="mt-4"><CopyButton value={JSON.stringify(detail, null, 2)} label="Copy JSON" /></div>
       </section>
     </div>
@@ -141,15 +153,45 @@ function InvalidArtifact({ issue, reason }: { issue: TlxScanIssue; reason: strin
   );
 }
 
-function isVisualIssue(issue: TlxScanIssue) {
-  return issue.kind === "overlap" || issue.kind === "overflow" || issue.kind === "contrast" || issue.kind === "color_harmony";
+export function isVisualIssue(issue: TlxScanIssue) {
+  return isTlxVisualScanIssue(issue);
 }
 
-function viewportDimensions(issue: TlxScanIssue) {
+export function viewportDimensions(issue: TlxScanIssue) {
   const sourceWidth = positiveNumber(issue.metadata.screenshotWidth ?? issue.metadata.viewportWidth ?? issue.metadata.width);
   const sourceHeight = positiveNumber(issue.metadata.screenshotHeight ?? issue.metadata.viewportHeight ?? issue.metadata.height);
   if (!sourceWidth || !sourceHeight) return undefined;
   return { sourceWidth, sourceHeight };
+}
+
+export function boxStyle(box: { x: number; y: number; width: number; height: number }, sourceWidth: number, sourceHeight: number, minPercent: number) {
+  return {
+    left: `${(box.x / sourceWidth) * 100}%`,
+    top: `${(box.y / sourceHeight) * 100}%`,
+    width: `${Math.max(minPercent, (box.width / sourceWidth) * 100)}%`,
+    height: `${Math.max(minPercent, (box.height / sourceHeight) * 100)}%`,
+  };
+}
+
+export function evidenceBox(issue: TlxScanIssue) {
+  const value = issue.metadata.evidenceBox;
+  if (!isBox(value)) return undefined;
+  return value;
+}
+
+function isBox(value: unknown): value is { x: number; y: number; width: number; height: number } {
+  if (!value || typeof value !== "object") return false;
+  const box = value as Record<string, unknown>;
+  return finiteNumber(box.x) !== undefined && finiteNumber(box.y) !== undefined && positiveNumber(box.width) !== undefined && positiveNumber(box.height) !== undefined;
+}
+
+function formatBox(box: { x: number; y: number; width: number; height: number }) {
+  return `${formatNumber(box.x)}:${formatNumber(box.y)} ${formatNumber(box.width)}x${formatNumber(box.height)}`;
+}
+
+function formatNumber(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 function positiveNumber(value: unknown) {
@@ -157,14 +199,39 @@ function positiveNumber(value: unknown) {
   return Number.isFinite(number) && number > 0 ? number : undefined;
 }
 
+function finiteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
 function issueTitle(issue: TlxScanIssue) {
   if (issue.kind === "overlap") return "Overlap";
   if (issue.kind === "overflow") return "Horizontal overflow";
   if (issue.kind === "contrast") return "Low contrast";
   if (issue.kind === "color_harmony") return "OKLCH harmony";
+  if (issue.kind === "alignment") return "Alignment";
+  if (issue.kind === "spacing") return "Spacing";
+  if (issue.kind === "typography") return "Typography";
+  if (issue.kind === "orphan") return "Orphan element";
+  if (issue.kind === "hit_area") return "Hit area";
+  if (issue.kind === "tap_target_spacing") return "Tap target spacing";
+  if (issue.kind === "text_clipping") return "Text clipping";
+  if (issue.kind === "line_height_collision") return "Line-height collision";
+  if (issue.kind === "local_scroll") return "Local horizontal scroll";
+  if (issue.kind === "fixed_occlusion") return "Fixed header occlusion";
+  if (issue.kind === "accessible_name") return "Missing accessible name";
+  if (issue.kind === "broken_image") return "Broken image";
   if (issue.kind === "crawler") return "Crawler";
   if (issue.kind === "api") return "API";
   return issue.kind;
+}
+
+function inspectorTitle(issue: TlxScanIssue) {
+  return `${issueTitle(issue)}: ${elementLabel(issue)} in ${issueArea(issue)}`;
+}
+
+function elementLabel(issue: TlxScanIssue) {
+  return String(issue.metadata.elementLabel ?? issue.metadata.elementText ?? issue.selector ?? "document");
 }
 
 function issueTestDescription(issue: TlxScanIssue) {
@@ -180,6 +247,46 @@ function issueTestDescription(issue: TlxScanIssue) {
   if (issue.kind === "color_harmony") {
     const routeDrift = issue.metadata.routeHueDrift ? ` Route drift ${String(issue.metadata.routeHueDrift)}deg from global palette.` : "";
     return `Checked OKLCH palette harmony. Score ${String(issue.metadata.score ?? "unknown")}; dominant hue ${String(issue.metadata.dominantHue ?? "neutral")}; strong hue families ${String(issue.metadata.strongHueFamilies ?? "unknown")}; high-chroma area ${String(issue.metadata.highChromaAreaRatio ?? "unknown")}.${routeDrift}`;
+  }
+  if (issue.kind === "alignment") {
+    return `Checked nearby component alignment. Axis ${String(issue.metadata.axis ?? "unknown")}; drift ${String(issue.metadata.driftPx ?? "unknown")}px from expected ${String(issue.metadata.expectedPx ?? "unknown")}px.`;
+  }
+  if (issue.kind === "spacing") {
+    return `Checked sibling gap consistency. Axis ${String(issue.metadata.axis ?? "unknown")}; gap ${String(issue.metadata.gapPx ?? "unknown")}px; expected near ${String(issue.metadata.expectedGapPx ?? "unknown")}px.`;
+  }
+  if (issue.kind === "typography") {
+    const evidence = String(issue.metadata.evidence ?? "unknown");
+    if (evidence === "type-scale-hierarchy") {
+      return `Checked heading hierarchy in ${issueArea(issue)}. Element ${elementLabel(issue)} is ${String(issue.metadata.fontSizePx ?? "unknown")}px; nearby body median is ${String(issue.metadata.bodyMedianPx ?? "unknown")}px; font weight is ${String(issue.metadata.fontWeight ?? "unknown")}.`;
+    }
+    return `Checked font size, type hierarchy, line-height, and font-family consistency for ${elementLabel(issue)} in ${issueArea(issue)}. Evidence ${evidence}.`;
+  }
+  if (issue.kind === "orphan") {
+    return `Checked element distance from nearby UI clusters. Distance ${String(issue.metadata.distancePx ?? "unknown")}px; threshold ${String(issue.metadata.thresholdPx ?? "unknown")}px.`;
+  }
+  if (issue.kind === "hit_area") {
+    return `Checked interactive target size for ${elementLabel(issue)} in ${issueArea(issue)}. Box ${String(issue.metadata.widthPx ?? "unknown")}x${String(issue.metadata.heightPx ?? "unknown")}px; minimum ${String(issue.metadata.expectedMinPx ?? "unknown")}px.`;
+  }
+  if (issue.kind === "tap_target_spacing") {
+    return `Checked touch target spacing. Distance ${String(issue.metadata.distancePx ?? "unknown")}px from ${String(issue.metadata.otherSelector ?? "unknown selector")}; expected at least ${String(issue.metadata.expectedGapPx ?? "unknown")}px.`;
+  }
+  if (issue.kind === "text_clipping") {
+    return `Checked text overflow and clipping metrics. scroll/client ${String(issue.metadata.scrollWidth ?? "unknown")}/${String(issue.metadata.clientWidth ?? "unknown")} width, ${String(issue.metadata.scrollHeight ?? "unknown")}/${String(issue.metadata.clientHeight ?? "unknown")} height.`;
+  }
+  if (issue.kind === "line_height_collision") {
+    return `Checked wrapped text line-height. Ratio ${String(issue.metadata.lineHeightRatio ?? "unknown")}; font ${String(issue.metadata.fontSizePx ?? "unknown")}px; line-height ${String(issue.metadata.lineHeightPx ?? "unknown")}px.`;
+  }
+  if (issue.kind === "local_scroll") {
+    return `Checked local scroll containers. Element scroll/client width ${String(issue.metadata.scrollWidth ?? "unknown")}/${String(issue.metadata.clientWidth ?? "unknown")}; overflow ${String(issue.metadata.overflowX ?? issue.metadata.overflowStyle ?? "unknown")}.`;
+  }
+  if (issue.kind === "fixed_occlusion") {
+    return `Checked anchor/focus scrolling against fixed and sticky elements. Occluder ${String(issue.metadata.occluderSelector ?? "unknown")} covers ${issue.selector}.`;
+  }
+  if (issue.kind === "accessible_name") {
+    return `Checked accessible names for interactive controls. Source ${String(issue.metadata.accessibleNameSource ?? "missing")}; role ${String(issue.metadata.role ?? "unknown")}.`;
+  }
+  if (issue.kind === "broken_image") {
+    return `Checked image load result. Source ${String(issue.metadata.imageSrc ?? "unknown")}; natural size ${String(issue.metadata.naturalWidth ?? "unknown")}x${String(issue.metadata.naturalHeight ?? "unknown")}.`;
   }
   if (issue.kind === "crawler") return "Checked local route health, internal link crawl safety, and console errors.";
   if (issue.kind === "api") return "Checked discovered API endpoint response status and JSON validity.";

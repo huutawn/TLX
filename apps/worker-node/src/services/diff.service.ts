@@ -10,6 +10,9 @@ export interface ScopedRoutesResult {
 }
 
 export class DiffService {
+  /**
+   * Compares previous and current source hashes, then derives route impact for scans.
+   */
   createDiff(previous: TlxHashCache, current: TlxHashCache, rootDir: string, graph: ScanGraph): TlxCacheDiffResponse {
     const changed: TlxCacheEntry[] = [];
     const unchanged: TlxCacheEntry[] = [];
@@ -62,6 +65,9 @@ export class DiffService {
     };
   }
 
+  /**
+   * Resolves user scan scope into concrete routes and marks no-op changed scans.
+   */
   resolveRoutes(scope: TlxScanScope, route: string | undefined, diff: TlxCacheDiffResponse, graph: ScanGraph): ScopedRoutesResult {
     if (scope === 'route') {
       return { routes: route ? [route] : [], effectiveScope: 'route', skipped: !route };
@@ -79,10 +85,16 @@ export class DiffService {
   }
 }
 
+/**
+ * Converts a hash-cache row into the contract shape used by cache diff responses.
+ */
 function toCacheEntry(filePath: string, hash?: string, route?: string): TlxCacheEntry {
   return route ? { path: normalizePath(filePath), hash, route } : { path: normalizePath(filePath), hash };
 }
 
+/**
+ * Adds direct and graph-derived page routes affected by a changed source file.
+ */
 function addAffectedRoutes(routes: Set<string>, filePath: string, directRoute: string | undefined, graph: ScanGraph) {
   if (directRoute) {
     routes.add(directRoute);
@@ -95,6 +107,9 @@ function addAffectedRoutes(routes: Set<string>, filePath: string, directRoute: s
   }
 }
 
+/**
+ * Sorts cache entries by normalized path for deterministic API output and tests.
+ */
 function sortEntry(left: TlxCacheEntry, right: TlxCacheEntry) {
   return left.path.localeCompare(right.path);
 }

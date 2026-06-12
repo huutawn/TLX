@@ -1,7 +1,8 @@
 "use client";
 
 import { Play } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import type { TlxScanScope } from "@tlx/contracts";
 import { useDashboardData } from "../_lib/dashboard-data";
 import { issueArea } from "../_lib/format";
 import { IssueList } from "./issues";
@@ -9,25 +10,36 @@ import { CommandButton, CopyButton, KeyValue, MetricCard, Panel, StatusPill } fr
 
 const SCAN_SUITES = [
   { suite: "AABB overlap", target: "selected routes", status: "ready" },
-  { suite: "Overflow", target: "selected routes", status: "queued" },
-  { suite: "WCAG + OKLCH", target: "all changed", status: "ready" },
+  { suite: "Overflow + visual quality", target: "selected routes", status: "queued" },
+  { suite: "WCAG + OKLCH + typography", target: "all changed", status: "ready" },
   { suite: "API fuzzing", target: "internal endpoints", status: "planned" },
 ];
 
 export function TestsView() {
   const { project, graph, diff, report, scanning, selectedRoute, setSelectedRoute, selectedIssue, setSelectedIssue, runScan } = useDashboardData();
+  const [selectedScope, setSelectedScope] = useState<TlxScanScope>("changed");
   const routes = graph.pages.length ? graph.pages.map((page) => page.route) : ["/"];
   const issues = report?.issues ?? [];
-  const latestLog = useMemo(() => createRunnerLog(report, selectedRoute), [report, selectedRoute]);
+  const latestLog = useMemo(() => createRunnerLog(report, selectedScope, selectedRoute), [report, selectedRoute, selectedScope]);
+  const scannedRoutes = report?.routes ?? [];
+
+  function runSelectedScan() {
+    return runScope(selectedScope);
+  }
+
+  function runScope(scope: TlxScanScope) {
+    setSelectedScope(scope);
+    return runScan(scope);
+  }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)_320px]">
       <aside className="space-y-4">
         <Panel title="Run scope">
           <div className="grid grid-cols-3 gap-2">
-            <CommandButton active disabled={scanning} onClick={() => void runScan("changed")}>Changed</CommandButton>
-            <CommandButton disabled={scanning} onClick={() => void runScan("all")}>All</CommandButton>
-            <CommandButton disabled={scanning} onClick={() => void runScan("route")}>Route</CommandButton>
+            <CommandButton active={selectedScope === "changed"} disabled={scanning} onClick={() => void runScope("changed")}>Changed</CommandButton>
+            <CommandButton active={selectedScope === "all"} disabled={scanning} onClick={() => void runScope("all")}>All</CommandButton>
+            <CommandButton active={selectedScope === "route"} disabled={scanning} onClick={() => void runScope("route")}>Route</CommandButton>
           </div>
         </Panel>
 
@@ -39,10 +51,10 @@ export function TestsView() {
             {routes.map((route) => <option key={route} value={route}>{route}</option>)}
           </select>
           <label className="field-label mt-3">Scanner</label>
-          <select className="field" value="aabb-overflow-wcag" disabled>
-            <option value="aabb-overflow-wcag">AABB + overflow + WCAG + OKLCH</option>
+          <select className="field" value="visual-quality" disabled>
+            <option value="visual-quality">AABB + visual quality + WCAG + OKLCH</option>
           </select>
-          <button className="primary-btn mt-4" disabled={scanning} onClick={() => void runScan("route")}>
+          <button className="primary-btn mt-4" disabled={scanning} onClick={() => void runSelectedScan()}>
             <Play size={16} />
             Run local test
           </button>
@@ -79,7 +91,7 @@ export function TestsView() {
               <StatusPill label={`pass ${Math.max(0, (report?.summary.routesScanned ?? 0) - (report?.summary.issuesFound ?? 0))}`} tone="good" />
               <StatusPill label={`fail ${report?.summary.issuesFound ?? 0}`} tone={(report?.summary.issuesFound ?? 0) > 0 ? "bad" : "muted"} />
             </div>
-            <div className="mt-4"><CopyButton value={JSON.stringify(report?.summary ?? {}, null, 2)} label="Copy JSON summary" /></div>
+            <div className="mt-4"><CopyButton value={JSON.stringify({ summary: report?.summary ?? {}, routes: scannedRoutes }, null, 2)} label="Copy JSON summary" /></div>
           </Panel>
         </div>
 
@@ -120,13 +132,14 @@ function QueueRow({ suite, target, status }: { suite: string; target: string; st
   );
 }
 
-function createRunnerLog(report: ReturnType<typeof useDashboardData>["report"], route: string) {
-  if (!report) return `tlx worker waiting\nscope: changed only\nendpoint: POST /api/actions/scan\nroute: ${route}`;
+function createRunnerLog(report: ReturnType<typeof useDashboardData>["report"], scope: TlxScanScope, route: string) {
+  if (!report) return [`tlx worker waiting`, `scope: ${scope}`, `endpoint: POST /api/actions/scan`, `route: ${scope === "route" ? route : "n/a"}`].join("\n");
   return [
     "tlx worker complete",
     `report: ${report.id}`,
     `scope: ${report.scope}`,
     `routes: ${report.summary.routesScanned}`,
+    `scanned: ${(report.routes ?? []).join(", ") || "none"}`,
     `elements: ${report.summary.elementsScanned}`,
     `issues: ${report.summary.issuesFound}`,
     `color score: ${report.colorAnalysis?.score ?? "n/a"}`,

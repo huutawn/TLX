@@ -9,7 +9,7 @@ TLX runs a Go host CLI and a Node/Bun worker behind it. The Go process owns the 
 - Detects common web frameworks such as Next.js, Vue/Vite, Laravel, and generic PHP.
 - Builds a local project graph of pages, components, API calls, and edges.
 - Runs local UI/UX checks with Playwright.
-- Detects layout overlap, horizontal overflow, and WCAG contrast issues.
+- Detects layout overlap, horizontal overflow, WCAG contrast, OKLCH palette, alignment, spacing, typography, orphan element, hit-area, and text-clipping issues.
 - Stores reports locally in the target project, not in the cloud.
 - Shows a local dashboard with project map, cache diff, scan controls, reports, and visual issue highlights.
 

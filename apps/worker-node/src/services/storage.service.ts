@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import type { TlxScanReport } from '@tlx/contracts';
+import type { VisualQualityThresholds } from '../scanner/ui-analyzer';
 import type { ScanGraph } from '../strategies/types';
 
 export interface TlxScanViewport {
@@ -29,6 +30,7 @@ export interface TlxProjectConfig {
       maxHighChromaAreaRatio: number;
       maxHueSpread: number;
     };
+    visualQuality: VisualQualityThresholds;
     crawler: {
       enabled: boolean;
       maxDepth: number;
@@ -73,6 +75,24 @@ export const DEFAULT_TLX_CONFIG: TlxProjectConfig = {
       maxHighChromaAreaRatio: 0.35,
       maxHueSpread: 150,
     },
+    visualQuality: {
+      enabled: true,
+      alignmentTolerancePx: 2,
+      alignmentMaxDriftPx: 5,
+      spacingGridPx: 4,
+      spacingTolerancePx: 1,
+      spacingMedianDriftPx: 4,
+      orphanDistancePx: 500,
+      minDesktopHitTargetPx: 32,
+      minMobileHitTargetPx: 40,
+      minTapTargetGapPx: 8,
+      minReadableFontPx: 12,
+      minMobileReadableFontPx: 14,
+      minInteractiveFontPx: 13,
+      minLineHeightRatio: 1.15,
+      maxLocalScrollOverflowPx: 12,
+      fixedOcclusionProbeEnabled: true,
+    },
     crawler: { enabled: true, maxDepth: 2, maxPages: 25 },
     api: { enabled: true, unsafeMethods: false },
   },
@@ -93,10 +113,16 @@ export class ProjectStorageService {
     return path.join(this.tlxDir, 'auth');
   }
 
+  /**
+   * Ensures project-local TLX folders exist before report or artifact writes.
+   */
   async ensureProjectStorage() {
     await fs.mkdir(this.screenshotsDir, { recursive: true });
   }
 
+  /**
+   * Reads root and legacy TLX config files, then overlays them onto safe defaults.
+   */
   async readConfig(): Promise<TlxProjectConfig> {
     const config = structuredClone(DEFAULT_TLX_CONFIG);
     const rootConfig = await this.readOptionalText(path.join(this.rootDir, 'tlx.yaml'));
@@ -112,6 +138,9 @@ export class ProjectStorageService {
     return config;
   }
 
+  /**
+   * Reads the persisted hash cache, returning an empty v1 cache when missing or invalid.
+   */
   async readHashCache(): Promise<TlxHashCache> {
     const filePath = path.join(this.tlxDir, 'hash.json');
     const text = await this.readOptionalText(filePath);
@@ -127,10 +156,16 @@ export class ProjectStorageService {
     }
   }
 
+  /**
+   * Persists the current source hash cache and returns warnings instead of throwing.
+   */
   async writeHashCache(cache: TlxHashCache): Promise<string[]> {
     return this.writeJsonFile(path.join(this.tlxDir, 'hash.json'), cache);
   }
 
+  /**
+   * Reads the latest scan report when dashboard history exists.
+   */
   async readLatestReport(): Promise<TlxScanReport | undefined> {
     const text = await this.readOptionalText(path.join(this.tlxDir, 'latest-report.json'));
     if (!text) {
@@ -144,10 +179,16 @@ export class ProjectStorageService {
     }
   }
 
+  /**
+   * Persists the latest scan report and returns non-fatal write warnings.
+   */
   async writeLatestReport(report: TlxScanReport): Promise<string[]> {
     return this.writeJsonFile(path.join(this.tlxDir, 'latest-report.json'), report);
   }
 
+  /**
+   * Resolves the absolute Playwright storage-state file for an auth profile.
+   */
   resolveAuthStorageStatePath(config: TlxProjectConfig, profile = config.auth.profile) {
     if (config.auth.storageStatePath) {
       return path.isAbsolute(config.auth.storageStatePath) ? config.auth.storageStatePath : path.join(this.rootDir, config.auth.storageStatePath);
@@ -156,10 +197,16 @@ export class ProjectStorageService {
     return path.join(this.authDir, `${safeProfileName(profile)}.json`);
   }
 
+  /**
+   * Returns the auth storage-state path relative to the target project root.
+   */
   relativeAuthStorageStatePath(config: TlxProjectConfig, profile = config.auth.profile) {
     return normalizePath(path.relative(this.rootDir, this.resolveAuthStorageStatePath(config, profile)));
   }
 
+  /**
+   * Checks whether a saved Playwright auth state exists for the profile.
+   */
   async authStorageStateExists(config: TlxProjectConfig, profile = config.auth.profile) {
     try {
       const stat = await fs.stat(this.resolveAuthStorageStatePath(config, profile));
@@ -169,6 +216,9 @@ export class ProjectStorageService {
     }
   }
 
+  /**
+   * Reads auth-state metadata needed by dashboard status without exposing cookies.
+   */
   async readAuthStorageStateMetadata(config: TlxProjectConfig, profile = config.auth.profile): Promise<{ savedAt?: string; origins: string[] } | undefined> {
     const filePath = this.resolveAuthStorageStatePath(config, profile);
     const text = await this.readOptionalText(filePath);
@@ -186,6 +236,9 @@ export class ProjectStorageService {
     }
   }
 
+  /**
+   * Deletes the saved auth state for the profile if present.
+   */
   async clearAuthStorageState(config: TlxProjectConfig, profile = config.auth.profile): Promise<boolean> {
     try {
       await fs.rm(this.resolveAuthStorageStatePath(config, profile), { force: true });
@@ -195,6 +248,9 @@ export class ProjectStorageService {
     }
   }
 
+  /**
+   * Hashes relevant source files and attaches route ownership from the scan graph.
+   */
   async createSnapshot(graph: ScanGraph, ignoredPaths: string[]): Promise<TlxHashCache> {
     const files = await collectSourceFiles(this.rootDir, ignoredPaths);
     const routeByPath = createRouteIndex(this.rootDir, graph);
@@ -218,14 +274,23 @@ export class ProjectStorageService {
     };
   }
 
+  /**
+   * Returns the absolute screenshot directory for one scan report.
+   */
   screenshotReportDir(reportId: string) {
     return path.join(this.screenshotsDir, reportId);
   }
 
+  /**
+   * Builds the project-relative screenshot path stored in scan issues and reports.
+   */
   relativeScreenshotPath(reportId: string, fileName: string) {
     return normalizePath(path.join('.tlx', 'screenshots', reportId, fileName));
   }
 
+  /**
+   * Reads optional text files without making missing files fatal.
+   */
   private async readOptionalText(filePath: string): Promise<string | undefined> {
     try {
       return await fs.readFile(filePath, 'utf8');
@@ -234,6 +299,9 @@ export class ProjectStorageService {
     }
   }
 
+  /**
+   * Writes JSON with stable formatting and converts filesystem failures to warnings.
+   */
   private async writeJsonFile(filePath: string, value: unknown): Promise<string[]> {
     try {
       await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -246,6 +314,9 @@ export class ProjectStorageService {
   }
 }
 
+/**
+ * Creates a relative source-path to route lookup from pages and their components.
+ */
 export function createRouteIndex(rootDir: string, graph: ScanGraph): Map<string, string> {
   const index = new Map<string, string>();
   for (const page of graph.pages) {
@@ -258,10 +329,16 @@ export function createRouteIndex(rootDir: string, graph: ScanGraph): Map<string,
   return index;
 }
 
+/**
+ * Normalizes paths for cross-platform cache keys and dashboard output.
+ */
 export function normalizePath(value: string) {
   return value.replace(/\\/g, '/');
 }
 
+/**
+ * Recursively collects source files while respecting configured ignored folders.
+ */
 async function collectSourceFiles(rootDir: string, ignoredPaths: string[]): Promise<string[]> {
   const files: string[] = [];
   const ignored = new Set(ignoredPaths.map((item) => item.replace(/^\.\//, '')));
@@ -292,6 +369,9 @@ async function collectSourceFiles(rootDir: string, ignoredPaths: string[]): Prom
   return files.sort();
 }
 
+/**
+ * Identifies source-like files that can affect graph, UI, or styling output.
+ */
 function isSourceFile(fileName: string) {
   if (fileName.endsWith('.blade.php')) {
     return true;
@@ -300,6 +380,9 @@ function isSourceFile(fileName: string) {
   return SOURCE_EXTENSIONS.has(path.extname(fileName));
 }
 
+/**
+ * Parses TLX's current flat `key: value` config format into a typed patch object.
+ */
 function parseConfig(contents: string): Partial<TlxProjectConfig> {
   const patch: Partial<TlxProjectConfig> = {};
   for (const rawLine of contents.split(/\r?\n/)) {
@@ -320,6 +403,9 @@ function parseConfig(contents: string): Partial<TlxProjectConfig> {
   return patch;
 }
 
+/**
+ * Applies one supported config key to a partial project configuration patch.
+ */
 function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value: string) {
   const scan = (config.scan ??= {} as TlxProjectConfig['scan']);
   const auth = (config.auth ??= {} as TlxProjectConfig['auth']);
@@ -363,6 +449,54 @@ function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value
     case 'scan.colorHarmony.maxHueSpread':
       scan.colorHarmony = { ...(scan.colorHarmony ?? DEFAULT_TLX_CONFIG.scan.colorHarmony), maxHueSpread: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.colorHarmony.maxHueSpread };
       break;
+    case 'scan.visualQuality.enabled':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), enabled: parseBoolean(value) };
+      break;
+    case 'scan.visualQuality.alignmentTolerancePx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), alignmentTolerancePx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.alignmentTolerancePx };
+      break;
+    case 'scan.visualQuality.alignmentMaxDriftPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), alignmentMaxDriftPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.alignmentMaxDriftPx };
+      break;
+    case 'scan.visualQuality.spacingGridPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), spacingGridPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.spacingGridPx };
+      break;
+    case 'scan.visualQuality.spacingTolerancePx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), spacingTolerancePx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.spacingTolerancePx };
+      break;
+    case 'scan.visualQuality.spacingMedianDriftPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), spacingMedianDriftPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.spacingMedianDriftPx };
+      break;
+    case 'scan.visualQuality.orphanDistancePx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), orphanDistancePx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.orphanDistancePx };
+      break;
+    case 'scan.visualQuality.minDesktopHitTargetPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minDesktopHitTargetPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minDesktopHitTargetPx };
+      break;
+    case 'scan.visualQuality.minMobileHitTargetPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minMobileHitTargetPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minMobileHitTargetPx };
+      break;
+    case 'scan.visualQuality.minTapTargetGapPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minTapTargetGapPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minTapTargetGapPx };
+      break;
+    case 'scan.visualQuality.minReadableFontPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minReadableFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minReadableFontPx };
+      break;
+    case 'scan.visualQuality.minMobileReadableFontPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minMobileReadableFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minMobileReadableFontPx };
+      break;
+    case 'scan.visualQuality.minInteractiveFontPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minInteractiveFontPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minInteractiveFontPx };
+      break;
+    case 'scan.visualQuality.minLineHeightRatio':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), minLineHeightRatio: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.minLineHeightRatio };
+      break;
+    case 'scan.visualQuality.maxLocalScrollOverflowPx':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), maxLocalScrollOverflowPx: Number.parseFloat(value) || DEFAULT_TLX_CONFIG.scan.visualQuality.maxLocalScrollOverflowPx };
+      break;
+    case 'scan.visualQuality.fixedOcclusionProbeEnabled':
+      scan.visualQuality = { ...(scan.visualQuality ?? DEFAULT_TLX_CONFIG.scan.visualQuality), fixedOcclusionProbeEnabled: parseBoolean(value) };
+      break;
     case 'scan.crawler.enabled':
       scan.crawler = { ...(scan.crawler ?? DEFAULT_TLX_CONFIG.scan.crawler), enabled: parseBoolean(value) };
       break;
@@ -381,6 +515,9 @@ function assignConfigValue(config: Partial<TlxProjectConfig>, key: string, value
   }
 }
 
+/**
+ * Deep-merges parsed config sections onto the default project config.
+ */
 function mergeConfig(target: TlxProjectConfig, patch: Partial<TlxProjectConfig>) {
   if (patch.auth) {
     target.auth = { ...target.auth, ...patch.auth };
@@ -391,15 +528,22 @@ function mergeConfig(target: TlxProjectConfig, patch: Partial<TlxProjectConfig>)
     ...target.scan,
     ...patch.scan,
     colorHarmony: { ...target.scan.colorHarmony, ...patch.scan.colorHarmony },
+    visualQuality: { ...target.scan.visualQuality, ...patch.scan.visualQuality },
     crawler: { ...target.scan.crawler, ...patch.scan.crawler },
     api: { ...target.scan.api, ...patch.scan.api },
   };
 }
 
+/**
+ * Parses human-friendly truthy values used by flat TLX config files.
+ */
 function parseBoolean(value: string) {
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
+/**
+ * Sanitizes auth profile names before they become local filenames.
+ */
 function safeProfileName(value: string) {
   return value.trim().replace(/[^a-z0-9._-]+/gi, '-').replace(/^-|-$/g, '') || 'default';
 }

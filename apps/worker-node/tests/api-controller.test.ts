@@ -7,7 +7,7 @@ import { resolveDashboardRoutePath } from '../src/server';
 import { ProjectStorageService } from '../src/services/storage.service';
 import type { TlxRuntimeContext } from '../src/services/runtime-context.service';
 import type { ScanGraph } from '../src/strategies/types';
-import type { TlxCacheDiffResponse, TlxScanResultResponse } from '@tlx/contracts';
+import type { TlxCacheDiffResponse, TlxScanReport, TlxScanResultResponse } from '@tlx/contracts';
 
 const tempRoots: string[] = [];
 
@@ -88,13 +88,29 @@ describe('ActionController Phase 2 endpoints', () => {
     const storage = new ProjectStorageService(context.project.rootDir);
     const snapshot = await storage.createSnapshot(context.project.scanGraph, []);
     await storage.writeHashCache(snapshot);
+    const staleReport: TlxScanReport = {
+      id: 'stale-report',
+      scope: 'route',
+      routes: ['/stale'],
+      startedAt: '2026-06-04T00:00:00.000Z',
+      finishedAt: '2026-06-04T00:00:01.000Z',
+      success: false,
+      summary: { routesScanned: 1, elementsScanned: 1, issuesFound: 1, screenshotsCaptured: 1 },
+      issues: [],
+      screenshots: ['stale.png'],
+      warnings: [],
+    };
+    await storage.writeLatestReport(staleReport);
     const res = createResponse();
 
     await new ActionController(context).triggerScan({ body: {} } as never, res as never);
 
     const body = res.body as TlxScanResultResponse;
     expect(res.statusCode).toBe(200);
+    expect(body.report.id).not.toBe('stale-report');
     expect(body.report.scope).toBe('changed');
+    expect(body.report.routes).toEqual([]);
+    expect(body.report.screenshots).toEqual([]);
     expect(body.report.summary.routesScanned).toBe(0);
     expect(body.totalElementsScanned).toBe(0);
   });

@@ -18,6 +18,9 @@ export class EngineService {
   private readonly diffService = new DiffService();
   private readonly runner = new PlaywrightScannerRunner();
 
+  /**
+   * Returns lightweight host status fields used by `/api/status` and health checks.
+   */
   async getSystemStatus() {
     return {
       status: 'active',
@@ -27,6 +30,9 @@ export class EngineService {
     };
   }
 
+  /**
+   * Builds a fresh source hash snapshot and compares it with the persisted cache.
+   */
   async getCacheDiff(project: ProjectMetadata): Promise<TlxCacheDiffResponse> {
     const storage = new ProjectStorageService(project.rootDir);
     const config = await storage.readConfig();
@@ -35,16 +41,25 @@ export class EngineService {
     return this.diffService.createDiff(previous, current, project.rootDir, project.scanGraph);
   }
 
+  /**
+   * Reads the last persisted scan report for dashboard display.
+   */
   async getLatestReport(project: ProjectMetadata): Promise<TlxScanReport | undefined> {
     return new ProjectStorageService(project.rootDir).readLatestReport();
   }
 
+  /**
+   * Reports whether the configured manual-auth storage state currently exists.
+   */
   async getAuthStatus(project: ProjectMetadata): Promise<TlxAuthStatusResponse> {
     const storage = new ProjectStorageService(project.rootDir);
     const config = await storage.readConfig();
     return createAuthStatus(storage, config, await storage.authStorageStateExists(config));
   }
 
+  /**
+   * Removes the configured auth storage state and returns the updated auth status.
+   */
   async clearAuth(project: ProjectMetadata): Promise<TlxAuthActionResponse> {
     const storage = new ProjectStorageService(project.rootDir);
     const config = await storage.readConfig();
@@ -52,6 +67,9 @@ export class EngineService {
     return { ...(await createAuthStatus(storage, config, false)), success: true, message: 'Auth state cleared.' };
   }
 
+  /**
+   * Opens headed Chromium so the user can log in, then stores Playwright state locally.
+   */
   async startManualAuth(project: ProjectMetadata, projectUrl: string, request: TlxAuthStartRequest): Promise<TlxAuthActionResponse> {
     const storage = new ProjectStorageService(project.rootDir);
     const config = await storage.readConfig();
@@ -79,6 +97,9 @@ export class EngineService {
     return { ...status, success: true, message: 'Auth state saved.' };
   }
 
+  /**
+   * Runs scoped UI/UX, crawler, API, screenshot, and report persistence work for a project.
+   */
   async runProjectScan(options: RunProjectScanOptions): Promise<TlxScanResultResponse> {
     const startedAt = new Date().toISOString();
     const storage = new ProjectStorageService(options.project.rootDir);
@@ -94,8 +115,9 @@ export class EngineService {
     await storage.ensureProjectStorage();
 
     if (scoped.skipped) {
-      const latest = await storage.readLatestReport();
-      const report = latest ?? createEmptyReport(reportId, requestedScope, startedAt, ['No changed routes to scan.']);
+      const report = createEmptyReport(reportId, requestedScope, startedAt, ['No changed routes to scan.']);
+      const reportWarnings = await storage.writeLatestReport(report);
+      report.warnings.push(...reportWarnings);
       return toResponse(report);
     }
 
@@ -120,6 +142,7 @@ export class EngineService {
     const report: TlxScanReport = {
       id: reportId,
       scope: requestedScope,
+      routes: scan.routes,
       startedAt,
       finishedAt,
       success: scan.artifactErrors.length === 0 && scan.issues.every((issue) => issue.severity !== 'error'),
@@ -142,6 +165,9 @@ export class EngineService {
   }
 }
 
+/**
+ * Creates the public auth-status response from config and optional storage metadata.
+ */
 async function createAuthStatus(storage: ProjectStorageService, config: TlxProjectConfig, authenticated: boolean): Promise<TlxAuthStatusResponse> {
   const metadata = authenticated ? await storage.readAuthStorageStateMetadata(config) : undefined;
   return {
@@ -154,36 +180,55 @@ async function createAuthStatus(storage: ProjectStorageService, config: TlxProje
   };
 }
 
+/**
+ * Keeps manual auth capture bounded while still giving users enough login time.
+ */
 function clampTimeout(timeoutMs: number | undefined) {
   if (!timeoutMs || !Number.isFinite(timeoutMs)) return 120_000;
   return Math.max(5_000, Math.min(timeoutMs, 10 * 60_000));
 }
 
+/**
+ * Falls back to changed-scope when API input or config contains an unknown scope.
+ */
 function normalizeScope(scope: string): TlxScanScope {
   return scope === 'all' || scope === 'route' || scope === 'changed' ? scope : 'changed';
 }
 
+/**
+ * Converts normalized routes into Playwright scan targets under the active project URL.
+ */
 function createTargets(routes: string[], projectUrl: string): RouteScanTarget[] {
   const base = projectUrl.endsWith('/') ? projectUrl.slice(0, -1) : projectUrl;
   const uniqueRoutes = routes.length > 0 ? [...new Set(routes.map((route) => normalizeScanRoute(route)))] : ['/'];
   return uniqueRoutes.map((route) => ({ route, url: `${base}${route}` }));
 }
 
+/**
+ * Preserves query strings while applying TLX route normalization to the path segment.
+ */
 function normalizeScanRoute(route: string): string {
   const [pathPart = '/', queryPart] = route.split('?');
   const normalizedPath = normalizeRoute(pathPart);
   return queryPart ? `${normalizedPath}?${queryPart}` : normalizedPath;
 }
 
+/**
+ * Generates filesystem-safe report identifiers from the current timestamp.
+ */
 function createReportId() {
   return `scan-${new Date().toISOString().replace(/[:.]/g, '-')}`;
 }
 
+/**
+ * Creates a successful zero-work report when changed-scope has no affected routes.
+ */
 function createEmptyReport(id: string, scope: TlxScanScope, startedAt: string, warnings: string[]): TlxScanReport {
   const finishedAt = new Date().toISOString();
   return {
     id,
     scope,
+    routes: [],
     startedAt,
     finishedAt,
     success: true,
@@ -194,6 +239,9 @@ function createEmptyReport(id: string, scope: TlxScanScope, startedAt: string, w
   };
 }
 
+/**
+ * Keeps the legacy scan response shape while attaching the structured Phase 2 report.
+ */
 function toResponse(report: TlxScanReport): TlxScanResultResponse {
   return {
     success: report.success,

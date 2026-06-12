@@ -29,7 +29,7 @@ export interface TlxBoundingBox {
   height: number;
 }
 
-export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'crawler' | 'api';
+export type TlxScanIssueKind = 'overlap' | 'overflow' | 'contrast' | 'color_harmony' | 'alignment' | 'spacing' | 'typography' | 'orphan' | 'hit_area' | 'text_clipping' | 'crawler' | 'api' | 'auth_required' | 'auth_failed';
 export type TlxScanIssueSeverity = 'info' | 'warning' | 'error';
 ```
 
