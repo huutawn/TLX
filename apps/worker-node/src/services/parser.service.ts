@@ -53,6 +53,9 @@ export class AstParserService {
   private readonly languages = new Map<SupportedLanguage, Language>();
   private readonly parsedFiles = new Map<string, ParsedFile>();
 
+  /**
+   * Parses a supported source file with tree-sitter and caches the parsed tree by path.
+   */
   async parseFile(filePath: string): Promise<ParsedFile> {
     const absolutePath = path.resolve(filePath);
     const cached = this.parsedFiles.get(absolutePath);
@@ -85,20 +88,32 @@ export class AstParserService {
     return parsedFile;
   }
 
+  /**
+   * Converts a parsed file into a compact JSON AST for tests and diagnostics.
+   */
   async parseToJson(filePath: string): Promise<AstJsonNode> {
     const parsed = await this.parseFile(filePath);
     return this.nodeToJson(parsed.rootNode);
   }
 
+  /**
+   * Finds all AST nodes of one or more tree-sitter node types in a source file.
+   */
   async findNodes(filePath: string, types: string | string[]): Promise<Node[]> {
     const parsed = await this.parseFile(filePath);
     return parsed.rootNode.descendantsOfType(types);
   }
 
+  /**
+   * Checks whether this service has a configured tree-sitter language for the file.
+   */
   supportsFile(filePath: string): boolean {
     return EXTENSION_LANGUAGE[path.extname(filePath).toLowerCase()] !== undefined;
   }
 
+  /**
+   * Maps file extensions to the parser language name expected by WASM loading.
+   */
   private getLanguageForFile(filePath: string): SupportedLanguage {
     const extension = path.extname(filePath).toLowerCase();
     const language = EXTENSION_LANGUAGE[extension];
@@ -110,6 +125,9 @@ export class AstParserService {
     return language;
   }
 
+  /**
+   * Lazily loads and caches the tree-sitter WASM language for a file family.
+   */
   private async loadLanguage(languageName: SupportedLanguage): Promise<Language> {
     await this.init();
 
@@ -127,6 +145,9 @@ export class AstParserService {
     return language;
   }
 
+  /**
+   * Initializes web-tree-sitter once and resolves its runtime WASM asset.
+   */
   private async init(): Promise<void> {
     this.initPromise ??= Parser.init({
       locateFile(scriptName: string) {
@@ -141,6 +162,9 @@ export class AstParserService {
     await this.initPromise;
   }
 
+  /**
+   * Serializes an AST subtree while trimming leaf text to keep diagnostics small.
+   */
   private nodeToJson(node: Node): AstJsonNode {
     const children = node.children.map((child) => this.nodeToJson(child));
     const text = children.length === 0 ? node.text.trim() : undefined;

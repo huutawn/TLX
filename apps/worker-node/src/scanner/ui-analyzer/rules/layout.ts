@@ -4,6 +4,7 @@ import { createDocumentElement, createIssue } from '../issues';
 import { clusterByAxis, describeElement, formatPx, groupedByArea, groupMap, isLayoutCandidate, isLikelyIntentionalEdgeElement } from '../predicates';
 import type { AnalyzeOptions, ScannedElement, VisualQualityThresholds } from '../types';
 
+/** Reports document-level horizontal scrolling caused by content wider than the viewport. */
 export function analyzePageOverflow(options: AnalyzeOptions, issues: TlxScanIssue[]) {
   if (options.pageMetrics && options.pageMetrics.scrollWidth > options.pageMetrics.clientWidth + 2) {
     const overflowWidth = options.pageMetrics.scrollWidth - options.pageMetrics.clientWidth;
@@ -15,6 +16,7 @@ export function analyzePageOverflow(options: AnalyzeOptions, issues: TlxScanIssu
   }
 }
 
+/** Reports element overflow and verified visual overlaps using geometry plus hit-test evidence. */
 export function analyzeElementOverflowAndOverlap(sorted: ScannedElement[], options: AnalyzeOptions, issues: TlxScanIssue[]) {
   for (let index = 0; index < sorted.length; index += 1) {
     const current = sorted[index];
@@ -51,6 +53,7 @@ export function analyzeElementOverflowAndOverlap(sorted: ScannedElement[], optio
   }
 }
 
+/** Reports small alignment drift inside local row and column clusters. */
 export function analyzeAlignment(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   const reported = new Set<string>();
   for (const group of groupedByArea(elements.filter(isLayoutCandidate))) {
@@ -63,6 +66,7 @@ export function analyzeAlignment(elements: ScannedElement[], options: AnalyzeOpt
   }
 }
 
+/** Reports inconsistent sibling gaps that fall off the configured spacing grid. */
 export function analyzeSpacing(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   const byParent = groupMap(elements.filter(isLayoutCandidate).filter((element) => Boolean(element.parentSelector)), (element) => element.parentSelector ?? 'document');
   const reported = new Set<string>();
@@ -73,6 +77,7 @@ export function analyzeSpacing(elements: ScannedElement[], options: AnalyzeOptio
   }
 }
 
+/** Reports isolated elements that sit far away from nearby UI clusters. */
 export function analyzeOrphans(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   const candidates = elements.filter(isLayoutCandidate).filter((element) => !isLikelyIntentionalEdgeElement(element, options));
   if (candidates.length < 3) return;
@@ -90,6 +95,7 @@ export function analyzeOrphans(elements: ScannedElement[], options: AnalyzeOptio
   }
 }
 
+/** Reports local horizontal scrolling inside individual elements when the page itself does not overflow. */
 export function analyzeLocalScroll(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   const pageOverflows = Boolean(options.pageMetrics && options.pageMetrics.scrollWidth > options.pageMetrics.clientWidth + 2);
   for (const element of elements) {
@@ -111,6 +117,7 @@ export function analyzeLocalScroll(elements: ScannedElement[], options: AnalyzeO
   }
 }
 
+/** Finds elements slightly off the dominant alignment axis within a cluster. */
 function reportAlignmentOutliers(elements: ScannedElement[], cluster: string, options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[], reported: Set<string>) {
   if (elements.length < 3) return;
   const axes: Array<{ name: string; value(element: ScannedElement): number }> = [
@@ -143,6 +150,7 @@ function reportAlignmentOutliers(elements: ScannedElement[], cluster: string, op
   }
 }
 
+/** Finds sibling gaps that are off-grid or inconsistent with neighboring gaps. */
 function reportSpacingGaps(elements: ScannedElement[], axis: 'x' | 'y', options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[], reported: Set<string>) {
   const sorted = [...elements].sort((left, right) => axisStart(left.boundingBox, axis) - axisStart(right.boundingBox, axis));
   const gaps: Array<{ before: ScannedElement; after: ScannedElement; gap: number }> = [];
@@ -184,6 +192,7 @@ function reportSpacingGaps(elements: ScannedElement[], axis: 'x' | 'y', options:
   }
 }
 
+/** Filters raw geometry overlaps down to likely user-visible layout collisions. */
 function isReportableOverlap(left: ScannedElement, right: ScannedElement, overlapBox: TlxBoundingBox): boolean {
   if (overlapBox.width < 4 || overlapBox.height < 4) return false;
   if (isLikelyParentChildContainment(left.boundingBox, right.boundingBox)) return false;

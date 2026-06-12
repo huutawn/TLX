@@ -5,6 +5,9 @@ import type { Browser, Page } from 'playwright';
 import { waitForPageSettled } from './page-collector';
 import type { PlaywrightScanOptions, RouteScanTarget } from './types';
 
+/**
+ * Reopens a route to capture screenshot evidence for synthetic route-level issues.
+ */
 export async function captureSyntheticRouteScreenshot(browser: Browser, issue: TlxScanIssue, options: PlaywrightScanOptions, screenshots: Set<string>, warnings: string[], artifactErrors: string[]) {
   if (!issue.url) return;
   const width = Number(issue.metadata.viewportWidth) || 1280;
@@ -24,6 +27,9 @@ export async function captureSyntheticRouteScreenshot(browser: Browser, issue: T
   }
 }
 
+/**
+ * Captures one full-page screenshot and attaches its relative path to visual issues.
+ */
 export async function captureVisualScreenshot(page: Page, target: RouteScanTarget, viewportName: string, visualIssues: TlxScanIssue[], options: PlaywrightScanOptions, screenshots: Set<string>, warnings: string[], artifactErrors: string[]) {
   const fileName = `${slugRoute(target.route)}-${viewportName}.png`;
   const absolutePath = path.join(options.screenshotsDir, fileName);
@@ -46,6 +52,9 @@ export async function captureVisualScreenshot(page: Page, target: RouteScanTarge
   }
 }
 
+/**
+ * Converts a route into a stable filename fragment for screenshot artifacts.
+ */
 export function slugRoute(route: string) {
   return route === '/' ? 'home' : route.replace(/^\//, '').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'route';
 }

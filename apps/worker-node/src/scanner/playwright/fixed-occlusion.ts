@@ -6,6 +6,9 @@ import type { ScannedElement } from '../ui-analyzer';
 import { slugRoute } from './artifacts';
 import type { RouteScanTarget } from './types';
 
+/**
+ * Scrolls anchor/focus targets into view and reports fixed or sticky elements that cover them.
+ */
 export async function probeFixedOcclusions(page: Page, target: RouteScanTarget, viewportName: string, reportId: string, pageMetrics: { scrollWidth: number; clientWidth: number; scrollHeight: number; clientHeight: number }, pageState: { title: string; url: string; textSample: string }): Promise<TlxScanIssue[]> {
   const probes = await page.evaluate(() => {
     const selectors = 'main, section, article, nav, header, footer, aside, form, button, a, h1, h2, h3, p, input, label, textarea, select, img, svg, [data-tlx-target], .__tlx-target';
@@ -68,14 +71,17 @@ export async function probeFixedOcclusions(page: Page, target: RouteScanTarget, 
     window.scrollTo(originalX, originalY);
     return issues;
 
+    /** Converts DOMRect viewport coordinates into TLX bounding-box shape. */
     function toViewportBox(rect: DOMRect): ScannedElement['boundingBox'] {
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     }
 
+    /** Converts viewport coordinates to document coordinates using captured scroll offsets. */
     function toDocumentBox(rect: Pick<DOMRect, 'x' | 'y' | 'width' | 'height'>, scrollX: number, scrollY: number): ScannedElement['boundingBox'] {
       return { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height };
     }
 
+    /** Returns the visible intersection between two viewport boxes. */
     function intersectionBox(left: ScannedElement['boundingBox'], right: ScannedElement['boundingBox']): ScannedElement['boundingBox'] | undefined {
       const x = Math.max(left.x, right.x);
       const y = Math.max(left.y, right.y);
@@ -86,10 +92,12 @@ export async function probeFixedOcclusions(page: Page, target: RouteScanTarget, 
       return width > 0 && height > 0 ? { x, y, width, height } : undefined;
     }
 
+    /** Computes box area for overlap-ratio filtering. */
     function area(box: ScannedElement['boundingBox']) {
       return box.width * box.height;
     }
 
+    /** Builds a stable human-readable selector for occlusion evidence. */
     function buildSelector(element: HTMLElement): string {
       if (element.id) return `#${cssEscape(element.id)}`;
       const attr = element.getAttribute('aria-label');
@@ -111,6 +119,7 @@ export async function probeFixedOcclusions(page: Page, target: RouteScanTarget, 
       return parts.join(' > ');
     }
 
+    /** Escapes selector fragments in browser context with a small fallback. */
     function cssEscape(value: string): string {
       if ('CSS' in window && typeof CSS.escape === 'function') return CSS.escape(value);
       return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');

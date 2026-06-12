@@ -34,6 +34,9 @@ const MIN_STRONG_CHROMA = 0.05;
 const HIGH_CHROMA = 0.11;
 const HUE_FAMILY_SIZE = 30;
 
+/**
+ * Scores one route palette using OKLCH hue families, chroma weight, and compatibility rules.
+ */
 export function analyzeColorHarmony(elements: ScannedElement[], options: ColorHarmonyOptions): ColorHarmonyResult {
   const samples = collectColorSamples(elements);
   const strongSamples = samples.filter((sample) => sample.oklch.hue !== null && sample.oklch.chroma >= MIN_STRONG_CHROMA);
@@ -97,6 +100,9 @@ export function analyzeColorHarmony(elements: ScannedElement[], options: ColorHa
   };
 }
 
+/**
+ * Aggregates per-route palette analysis into the report-level color summary.
+ */
 export function summarizeColorAnalysis(routes: TlxRouteColorAnalysis[], thresholds: TlxColorAnalysisThresholds): TlxColorAnalysis {
   const weighted = routes.flatMap((route) => route.palette.map((entry) => ({ hue: entry.oklch.hue, chroma: entry.oklch.chroma, weight: entry.weight })));
   const dominantHue = dominantHueFromSamples(weighted.filter((sample): sample is { hue: number; chroma: number; weight: number } => sample.hue !== null && sample.chroma >= MIN_STRONG_CHROMA).map((sample) => ({ oklch: { hue: sample.hue, chroma: sample.chroma, lightness: 0 }, weight: sample.weight })));
@@ -104,6 +110,9 @@ export function summarizeColorAnalysis(routes: TlxRouteColorAnalysis[], threshol
   return { enabled: true, score, dominantHue, thresholds, routes };
 }
 
+/**
+ * Creates route-level issues for palettes that drift too far from the scan's dominant hue.
+ */
 export function createCrossRouteColorIssues(routes: TlxRouteColorAnalysis[], thresholds: TlxColorAnalysisThresholds): Array<{ route: string; viewport: string; message: string; metadata: Record<string, unknown> }> {
   const globalHue = summarizeColorAnalysis(routes, thresholds).dominantHue;
   if (globalHue === null) return [];
@@ -134,6 +143,9 @@ export function createCrossRouteColorIssues(routes: TlxRouteColorAnalysis[], thr
     });
 }
 
+/**
+ * Parses supported CSS `rgb()`, `rgba()`, and hex colors into sRGB channels.
+ */
 export function parseCssColor(value: string): [number, number, number] | undefined {
   const trimmed = value.trim().toLowerCase();
   const rgb = trimmed.match(/^rgba?\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?/);
@@ -150,6 +162,9 @@ export function parseCssColor(value: string): [number, number, number] | undefin
   return [Number.parseInt(expanded.slice(0, 2), 16), Number.parseInt(expanded.slice(2, 4), 16), Number.parseInt(expanded.slice(4, 6), 16)];
 }
 
+/**
+ * Converts sRGB channels into OKLCH values for perceptual palette comparisons.
+ */
 export function rgbToOklch([red, green, blue]: [number, number, number]) {
   const r = srgbToLinear(red / 255);
   const g = srgbToLinear(green / 255);
@@ -168,11 +183,17 @@ export function rgbToOklch([red, green, blue]: [number, number, number]) {
   return { lightness: round(lightness, 4), chroma: round(chroma, 4), hue: hue === null ? null : round(hue, 2) };
 }
 
+/**
+ * Computes shortest angular distance between two hue values in degrees.
+ */
 export function hueDistance(left: number, right: number) {
   const delta = Math.abs(normalizeHue(left) - normalizeHue(right));
   return Math.min(delta, 360 - delta);
 }
 
+/**
+ * Collects weighted color samples from DOM evidence, including text and surface colors.
+ */
 function collectColorSamples(elements: ScannedElement[]): ColorSample[] {
   const samples: ColorSample[] = [];
   for (const element of elements) {
@@ -199,6 +220,9 @@ function collectColorSamples(elements: ScannedElement[]): ColorSample[] {
   return samples;
 }
 
+/**
+ * Builds the top weighted colors for report display and issue evidence.
+ */
 function summarizePalette(samples: ColorSample[]) {
   const byColor = new Map<string, ColorSample & { count: number }>();
   for (const sample of samples) {
@@ -217,6 +241,9 @@ function summarizePalette(samples: ColorSample[]) {
     .map((sample) => ({ role: sample.role, color: sample.color, oklch: sample.oklch, weight: round(sample.weight, 2) }));
 }
 
+/**
+ * Buckets strong chroma samples into coarse hue families for harmony scoring.
+ */
 function hueFamilies(samples: ColorSample[]) {
   const families = new Map<number, { hue: number; weight: number }>();
   for (const sample of samples) {
@@ -230,6 +257,9 @@ function hueFamilies(samples: ColorSample[]) {
   return [...families.values()].sort((left, right) => right.weight - left.weight).slice(0, 8);
 }
 
+/**
+ * Computes a weighted circular mean hue from strong color samples.
+ */
 function dominantHueFromSamples(samples: Array<{ oklch: { hue: number | null; chroma: number }; weight: number }>): number | null {
   let x = 0;
   let y = 0;
@@ -244,6 +274,9 @@ function dominantHueFromSamples(samples: Array<{ oklch: { hue: number | null; ch
   return round(normalizeHue((Math.atan2(y, x) * 180) / Math.PI), 2);
 }
 
+/**
+ * Returns the largest hue distance between route hue families.
+ */
 function routeHueSpread(hues: number[]) {
   let spread = 0;
   for (let left = 0; left < hues.length; left += 1) {
@@ -257,6 +290,9 @@ function routeHueSpread(hues: number[]) {
   return round(spread, 2);
 }
 
+/**
+ * Counts hue-family pairs that are neither analogous nor complementary.
+ */
 function countIncompatiblePairs(hues: number[]) {
   let count = 0;
   for (let left = 0; left < hues.length; left += 1) {
@@ -270,11 +306,17 @@ function countIncompatiblePairs(hues: number[]) {
   return count;
 }
 
+/**
+ * Accepts near-analogous and near-complementary hue pairs as intentional combinations.
+ */
 function isCompatibleHuePair(left: number, right: number) {
   const distance = hueDistance(left, right);
   return distance <= 45 || (distance >= 150 && distance <= 180);
 }
 
+/**
+ * Converts palette measurements into a bounded 0-100 harmony score.
+ */
 function scoreRoute(strongFamilies: number, hueSpread: number, highChromaAreaRatio: number, incompatiblePairs: number, thresholds: TlxColorAnalysisThresholds) {
   let score = 100;
   score -= Math.max(0, strongFamilies - thresholds.maxStrongHueFamilies) * 12;
@@ -284,26 +326,44 @@ function scoreRoute(strongFamilies: number, hueSpread: number, highChromaAreaRat
   return round(Math.max(0, Math.min(100, score)), 2);
 }
 
+/**
+ * Selects the strongest color evidence sample by chroma and visual weight.
+ */
 function strongestSample(samples: ColorSample[]) {
   return [...samples].sort((left, right) => right.oklch.chroma * right.weight - left.oklch.chroma * left.weight)[0];
 }
 
+/**
+ * Wraps hue degrees into the 0-360 range.
+ */
 function normalizeHue(value: number) {
   return ((value % 360) + 360) % 360;
 }
 
+/**
+ * Serializes sRGB channels into normalized `rgb(r, g, b)` text.
+ */
 function normalizeColor([red, green, blue]: [number, number, number]) {
   return `rgb(${red}, ${green}, ${blue})`;
 }
 
+/**
+ * Clamps color channel values to valid integer sRGB bounds.
+ */
 function clampRgb(value: number) {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
 
+/**
+ * Converts gamma-encoded sRGB to linear light.
+ */
 function srgbToLinear(value: number) {
   return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
 }
 
+/**
+ * Rounds numbers for stable report JSON and deterministic tests.
+ */
 function round(value: number, places = 2) {
   const factor = 10 ** places;
   return Math.round(value * factor) / factor;

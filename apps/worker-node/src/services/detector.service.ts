@@ -23,6 +23,10 @@ const DEFAULT_PORTS: Record<string, number> = {
 export type { ComponentNode, PageNode, ProjectManifest, ProjectMetadata, ScanGraph };
 
 export class DetectorService {
+  /**
+   * Detects the target project framework and builds the initial static scan graph.
+   * Unknown projects still return a valid metadata object so the dashboard can boot.
+   */
   async detectProject(projectPath: string = process.cwd()): Promise<ProjectMetadata> {
     const rootDir = path.resolve(projectPath);
     const manifest = await this.createManifest(rootDir);
@@ -51,6 +55,9 @@ export class DetectorService {
     };
   }
 
+  /**
+   * Creates the framework-neutral manifest consumed by detection strategies.
+   */
   private async createManifest(rootDir: string): Promise<ProjectManifest> {
     const [packageJson, composerJson, markers] = await Promise.all([
       readJsonFile(path.join(rootDir, 'package.json')),
@@ -66,6 +73,9 @@ export class DetectorService {
     };
   }
 
+  /**
+   * Collects known config files and a bounded source-file sample as framework markers.
+   */
   private async collectMarkers(rootDir: string): Promise<string[]> {
     const knownMarkers = [
       'next.config.js',
@@ -102,6 +112,9 @@ export class DetectorService {
     return [...markerSet].sort();
   }
 
+  /**
+   * Normalizes page extraction output into dashboard graph nodes and typed edges.
+   */
   private createScanGraph(pages: PageNode[], apiEndpoints: string[] = []): ScanGraph {
     const components = new Map<string, ComponentNode>();
     const apis = new Set(apiEndpoints.filter(isGraphApiEndpoint));

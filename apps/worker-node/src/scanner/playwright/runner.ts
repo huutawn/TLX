@@ -12,6 +12,9 @@ import { discoverInternalTargets, uniqueTargets } from './routes';
 import type { PlaywrightScanOptions, PlaywrightScanResult, RouteScanTarget } from './types';
 
 export class PlaywrightScannerRunner {
+  /**
+   * Launches a headless Chromium instance and scans the requested route targets.
+   */
   async scan(targets: RouteScanTarget[], options: PlaywrightScanOptions): Promise<PlaywrightScanResult> {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -21,6 +24,9 @@ export class PlaywrightScannerRunner {
     }
   }
 
+  /**
+   * Executes the full per-viewport scan pipeline using an existing browser instance.
+   */
   private async scanWithBrowser(browser: Browser, targets: RouteScanTarget[], options: PlaywrightScanOptions): Promise<PlaywrightScanResult> {
     const issues: TlxScanIssue[] = [];
     const screenshots = new Set<string>();
@@ -171,6 +177,9 @@ export class PlaywrightScannerRunner {
   }
 }
 
+/**
+ * Extracts color-harmony threshold values from the project scan config.
+ */
 function colorHarmonyThresholds(config: TlxProjectConfig) {
   return {
     maxStrongHueFamilies: config.scan.colorHarmony.maxStrongHueFamilies,

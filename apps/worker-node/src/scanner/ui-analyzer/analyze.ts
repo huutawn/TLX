@@ -9,6 +9,9 @@ import { analyzeLineHeightCollision, analyzeTextClipping, analyzeTypography } fr
 import { describeElement } from './predicates';
 import type { AnalyzeOptions, AnalyzeResult, ScannedElement } from './types';
 
+/**
+ * Runs all pure DOM-evidence analyzers and returns issues plus optional color analysis.
+ */
 export function analyzeElements(elements: ScannedElement[], options: AnalyzeOptions): AnalyzeResult {
   const issues: TlxScanIssue[] = [];
   const sorted = [...elements].sort((left, right) => left.boundingBox.x - right.boundingBox.x);
@@ -53,6 +56,9 @@ export function analyzeElements(elements: ScannedElement[], options: AnalyzeOpti
   return { issues, elementsScanned: elements.length, colorAnalysis };
 }
 
+/**
+ * Reports text nodes whose foreground/background colors miss the configured WCAG ratio.
+ */
 function analyzeContrast(elements: ScannedElement[], options: AnalyzeOptions, issues: TlxScanIssue[]) {
   for (const current of elements) {
     const ratio = contrastRatio(current.color, current.backgroundColor);

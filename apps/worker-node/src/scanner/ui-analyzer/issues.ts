@@ -2,6 +2,9 @@ import type { TlxBoundingBox, TlxScanIssue } from '@tlx/contracts';
 import { elementLabel } from './predicates';
 import type { AnalyzeOptions, ScannedElement, VisualQualityThresholds } from './types';
 
+/**
+ * Creates a normalized scan issue with route, viewport, screenshot, and element metadata.
+ */
 export function createIssue(kind: TlxScanIssue['kind'], index: number, element: ScannedElement, boundingBox: TlxBoundingBox, options: AnalyzeOptions, message: string, metadata: Record<string, unknown>, severity?: TlxScanIssue['severity']): TlxScanIssue {
   return {
     id: `${options.issuePrefix}-${kind}-${index}`,
@@ -32,6 +35,9 @@ export function createIssue(kind: TlxScanIssue['kind'], index: number, element: 
   };
 }
 
+/**
+ * Applies visual-quality defaults so rule modules can assume complete thresholds.
+ */
 export function normalizeVisualQuality(input: Partial<VisualQualityThresholds> | undefined): VisualQualityThresholds {
   return {
     enabled: input?.enabled ?? true,
@@ -53,6 +59,9 @@ export function normalizeVisualQuality(input: Partial<VisualQualityThresholds> |
   };
 }
 
+/**
+ * Creates a synthetic document element for page-level issues without a DOM selector.
+ */
 export function createDocumentElement(): ScannedElement {
   return {
     selector: 'document',
@@ -66,6 +75,9 @@ export function createDocumentElement(): ScannedElement {
   };
 }
 
+/**
+ * Maps issue kinds to default severity for report success/failure decisions.
+ */
 function severityForKind(kind: TlxScanIssue['kind']): TlxScanIssue['severity'] {
   if (kind === 'contrast' || kind === 'color_harmony' || kind === 'alignment' || kind === 'spacing' || kind === 'typography' || kind === 'orphan' || kind === 'hit_area' || kind === 'tap_target_spacing' || kind === 'accessible_name' || kind === 'line_height_collision') return 'warning';
   return 'error';

@@ -4,6 +4,7 @@ import { createIssue } from '../issues';
 import { accessibleNameFor, describeElement, formatPx, isInlineTextLink, isInteractiveElement, isLayoutCandidate, sharesInteractiveAncestor } from '../predicates';
 import type { AnalyzeOptions, ScannedElement, VisualQualityThresholds } from '../types';
 
+/** Reports interactive controls smaller than configured desktop/mobile hit-area minimums. */
 export function analyzeHitAreas(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   const minimum = options.viewport.width <= 640 ? thresholds.minMobileHitTargetPx : thresholds.minDesktopHitTargetPx;
   for (const element of elements) {
@@ -19,6 +20,7 @@ export function analyzeHitAreas(elements: ScannedElement[], options: AnalyzeOpti
   }
 }
 
+/** Reports adjacent tap targets that are too close for reliable touch input. */
 export function analyzeTapTargetSpacing(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   const controls = elements.filter((element) => isInteractiveElement(element) && !isInlineTextLink(element) && isLayoutCandidate(element));
   const reported = new Set<string>();
@@ -49,6 +51,7 @@ export function analyzeTapTargetSpacing(elements: ScannedElement[], options: Ana
   }
 }
 
+/** Reports interactive elements that have no accessible name for assistive tech. */
 export function analyzeAccessibleNames(elements: ScannedElement[], options: AnalyzeOptions, issues: TlxScanIssue[]) {
   for (const element of elements) {
     if (!isInteractiveElement(element) || isInlineTextLink(element)) continue;

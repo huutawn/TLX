@@ -4,6 +4,9 @@ import type { Page } from 'playwright';
 import type { ScannedElement } from '../ui-analyzer';
 import type { PageScanResult } from './types';
 
+/**
+ * Waits for network, fonts, and DOM-size signatures to stabilize before scanning layout.
+ */
 export async function waitForPageSettled(page: Page) {
   await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
   await page.evaluate(() => document.fonts?.ready.then(() => undefined)).catch(() => undefined);
@@ -24,6 +27,9 @@ export async function waitForPageSettled(page: Page) {
   await page.waitForTimeout(100).catch(() => undefined);
 }
 
+/**
+ * Collects DOM geometry, typography, accessibility, media, and color evidence in page context.
+ */
 export async function collectElements(page: Page): Promise<PageScanResult> {
   return page.evaluate(() => {
     const selectors = 'main, section, article, nav, header, footer, aside, form, button, a, h1, h2, h3, p, input, label, textarea, select, img, svg, [data-tlx-target], .__tlx-target';
@@ -116,12 +122,14 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       },
     };
 
+    /** Filters hidden elements so analyzer receives only reportable visual boxes. */
     function isVisible(element: HTMLElement | null): boolean {
       if (!element) return false;
       const style = window.getComputedStyle(element);
       return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.getAttribute('aria-hidden') !== 'true';
     }
 
+    /** Builds a stable selector using ids, test attrs, aria labels, then short ancestry. */
     function buildSelector(element: HTMLElement): string {
       if (element.id) return `#${cssEscape(element.id)}`;
       for (const attr of ['data-testid', 'data-test', 'aria-label']) {
@@ -146,11 +154,13 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return parts.join(' > ');
     }
 
+    /** Escapes CSS selector fragments with a fallback for older browser contexts. */
     function cssEscape(value: string): string {
       if ('CSS' in window && typeof CSS.escape === 'function') return CSS.escape(value);
       return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     }
 
+    /** Returns ancestor selectors for parent-child overlap suppression. */
     function ancestorSelectors(element: HTMLElement): string[] {
       const selectors: string[] = [];
       let current = element.parentElement;
@@ -161,11 +171,13 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return selectors;
     }
 
+    /** Returns the nearest matching ancestor selector for composite-control grouping. */
     function closestSelector(element: HTMLElement, selector: string): string | undefined {
       const closest = element.closest<HTMLElement>(selector);
       return closest ? buildSelector(closest) : undefined;
     }
 
+    /** Resolves label text from `for`, wrapping label, and `aria-labelledby`. */
     function associatedLabelText(element: HTMLElement): string | undefined {
       const labels: string[] = [];
       const id = element.id;
@@ -184,6 +196,7 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return labels.map((value) => value.replace(/\s+/g, ' ').trim()).find(Boolean);
     }
 
+    /** Computes the best available accessible name and records its source. */
     function accessibleLabel(element: HTMLElement): { name?: string; source?: string } {
       const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
       if (text) return { name: text, source: 'text' };
@@ -198,6 +211,7 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return {};
     }
 
+    /** Measures rendered text line boxes to detect wrapped-line collisions. */
     function lineBoxMetrics(element: HTMLElement): { count?: number; minGap?: number } {
       const text = element.textContent?.trim();
       if (!text) return {};
@@ -222,11 +236,13 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       }
     }
 
+    /** Finds the nearest semantic area selector for grouping related UI elements. */
     function findAreaSelector(element: HTMLElement): string | undefined {
       const area = element.closest<HTMLElement>('section, article, main, nav, header, footer, aside, form');
       return area ? buildSelector(area) : undefined;
     }
 
+    /** Names a semantic area using its heading, aria label, or tag fallback. */
     function findAreaLabel(element: HTMLElement): string | undefined {
       const area = element.closest<HTMLElement>('section, article, main, nav, header, footer, aside, form');
       const heading = area?.querySelector<HTMLElement>('h1, h2, h3') ?? element.closest<HTMLElement>('section, article, main')?.querySelector<HTMLElement>('h1, h2, h3');
@@ -234,6 +250,7 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return label ? label.substring(0, 80) : undefined;
     }
 
+    /** Computes an intersection box for overlap and top-element hit testing. */
     function intersectionBox(left: ScannedElement['boundingBox'], right: ScannedElement['boundingBox']): ScannedElement['boundingBox'] | undefined {
       const x = Math.max(left.x, right.x);
       const y = Math.max(left.y, right.y);
@@ -244,6 +261,7 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return width > 0 && height > 0 ? { x, y, width, height } : undefined;
     }
 
+    /** Samples points inside an overlap to identify which element visually sits on top. */
     function topElementSelector(box: ScannedElement['boundingBox']): string | undefined {
       const points: Array<[number, number]> = [
         [box.x + box.width / 2, box.y + box.height / 2],
@@ -258,6 +276,7 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return undefined;
     }
 
+    /** Walks ancestors to find the effective non-transparent background color. */
     function findBackgroundColor(element: HTMLElement): string {
       let current: HTMLElement | null = element;
       while (current) {
@@ -270,6 +289,7 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return 'rgb(255, 255, 255)';
     }
 
+    /** Captures text, background, border, and SVG fill samples for palette analysis. */
     function colorSamples(element: HTMLElement, style: CSSStyleDeclaration): Array<{ role: string; value: string }> {
       const samples = [
         { role: 'text', value: style.color },
@@ -285,11 +305,13 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return samples;
     }
 
+    /** Parses CSS pixel-like numeric values while ignoring non-numeric tokens. */
     function parseCssPx(value: string): number | undefined {
       const parsed = Number.parseFloat(value);
       return Number.isFinite(parsed) ? parsed : undefined;
     }
 
+    /** Normalizes line-height to pixels, approximating `normal` from font size. */
     function parseLineHeight(lineHeight: string, fontSize: string): number | undefined {
       const parsed = parseCssPx(lineHeight);
       if (parsed !== undefined) return parsed;
@@ -297,6 +319,7 @@ export async function collectElements(page: Page): Promise<PageScanResult> {
       return size !== undefined && lineHeight === 'normal' ? size * 1.2 : undefined;
     }
 
+    /** Reads margin or padding edges as numeric pixel values. */
     function boxEdges(style: CSSStyleDeclaration, prefix: 'margin' | 'padding') {
       return {
         top: parseCssPx(style.getPropertyValue(`${prefix}-top`)) ?? 0,

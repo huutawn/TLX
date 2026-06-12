@@ -5,6 +5,9 @@ import type { Page } from 'playwright';
 import { slugRoute } from './artifacts';
 import type { RouteScanTarget } from './types';
 
+/**
+ * Performs shallow, local-origin-safe crawl checks and fills common form fields with mock input.
+ */
 export async function crawlSafe(page: Page, target: RouteScanTarget, maxDepth: number, maxPages: number): Promise<TlxScanIssue[]> {
   const links = await page.$$eval('a[href]', (anchors, limit) => anchors.map((anchor) => (anchor as HTMLAnchorElement).href).slice(0, limit), maxPages);
   const origin = new URL(target.url).origin;
@@ -27,6 +30,9 @@ export async function crawlSafe(page: Page, target: RouteScanTarget, maxDepth: n
   return issues;
 }
 
+/**
+ * Checks discovered local API endpoints for healthy status and valid JSON responses.
+ */
 export async function checkApiContracts(page: Page, target: RouteScanTarget, endpoints: string[], allowUnsafeMethods: boolean): Promise<TlxScanIssue[]> {
   const issues: TlxScanIssue[] = [];
   const origin = new URL(target.url).origin;
@@ -56,6 +62,9 @@ export async function checkApiContracts(page: Page, target: RouteScanTarget, end
   return issues;
 }
 
+/**
+ * Creates a route-level issue that is not tied to a specific DOM element.
+ */
 export function createSyntheticIssue(kind: 'crawler' | 'api', target: RouteScanTarget, message: string, metadata: Record<string, unknown>): TlxScanIssue {
   return {
     id: `${kind}-${slugRoute(target.route)}-${Math.random().toString(36).slice(2, 8)}`,
@@ -70,6 +79,9 @@ export function createSyntheticIssue(kind: 'crawler' | 'api', target: RouteScanT
   };
 }
 
+/**
+ * Classifies 401/403 route responses as missing or stale manual-auth state.
+ */
 export function createAuthIssue(target: RouteScanTarget, status: number, viewportName: string, hasStorageState: boolean): TlxScanIssue {
   const kind = hasStorageState ? 'auth_failed' : 'auth_required';
   const message = hasStorageState

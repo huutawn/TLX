@@ -3,6 +3,7 @@ import { createIssue } from '../issues';
 import { describeElement } from '../predicates';
 import type { AnalyzeOptions, ScannedElement } from '../types';
 
+/** Reports image elements that completed loading with zero natural dimensions. */
 export function analyzeBrokenImages(elements: ScannedElement[], options: AnalyzeOptions, issues: TlxScanIssue[]) {
   for (const element of elements) {
     if (element.tagName !== 'IMG' || element.complete !== true) continue;

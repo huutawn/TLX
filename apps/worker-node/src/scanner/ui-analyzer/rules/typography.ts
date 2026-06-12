@@ -4,6 +4,7 @@ import { median } from '../geometry';
 import { describeElement, formatPx, groupedByArea, isHeading, isInteractiveElement, isLayoutCandidate, normalizeFontFamily, numericFontWeight } from '../predicates';
 import type { AnalyzeOptions, ScannedElement, VisualQualityThresholds } from '../types';
 
+/** Reports unreadable font sizes, weak heading hierarchy, and font-family inconsistency. */
 export function analyzeTypography(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   const textElements = elements.filter((element) => element.text && element.fontSize && element.fontSize > 0 && isLayoutCandidate(element));
   const reported = new Set<string>();
@@ -80,6 +81,7 @@ export function analyzeTypography(elements: ScannedElement[], options: AnalyzeOp
   }
 }
 
+/** Reports text that is clipped or truncated by overflow, nowrap, or line-clamp settings. */
 export function analyzeTextClipping(elements: ScannedElement[], options: AnalyzeOptions, issues: TlxScanIssue[]) {
   for (const element of elements) {
     if (!element.text || element.clientWidth === undefined || element.scrollWidth === undefined || element.clientHeight === undefined || element.scrollHeight === undefined) continue;
@@ -103,6 +105,7 @@ export function analyzeTextClipping(elements: ScannedElement[], options: Analyze
   }
 }
 
+/** Reports multi-line text whose line-height causes wrapped lines to collide. */
 export function analyzeLineHeightCollision(elements: ScannedElement[], options: AnalyzeOptions, thresholds: VisualQualityThresholds, issues: TlxScanIssue[]) {
   for (const element of elements) {
     if (!element.text || !element.fontSize || !element.lineHeight || element.fontSize <= 0) continue;

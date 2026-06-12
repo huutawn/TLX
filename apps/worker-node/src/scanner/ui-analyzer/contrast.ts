@@ -1,5 +1,8 @@
 import { parseCssColor } from '../color-harmony';
 
+/**
+ * Calculates WCAG contrast ratio for parseable CSS foreground/background colors.
+ */
 export function contrastRatio(foreground: string, background: string): number {
   const fg = parseCssColor(foreground);
   const bg = parseCssColor(background);
@@ -12,6 +15,9 @@ export function contrastRatio(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/**
+ * Converts sRGB channels to relative luminance using the WCAG formula.
+ */
 function relativeLuminance([red, green, blue]: [number, number, number]) {
   const [r, g, b] = [red, green, blue].map((channel) => {
     const normalized = channel / 255;
